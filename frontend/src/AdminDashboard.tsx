@@ -24,16 +24,37 @@ import {
   Terminal,
   Trash2,
   Users,
-  Wrench,
   X,
 } from 'lucide-react';
-import type { DashboardResponse, HomelabService, SshConnection } from './types';
+import type {
+  DashboardResponse,
+  HomelabService,
+  ProcessInfo,
+  SshConnection,
+} from './types';
+import {
+  AVATAR_CONFIG,
+  AvatarBadge,
+  AvatarOrb,
+  getProfileAvatarTheme,
+} from './Avatar';
 
-type AdminTab = 'dashboard' | 'docker' | 'ssh' | 'events';
-type AvatarMood = 'idle' | 'happy' | 'wink' | 'curious' | 'focus';
+type AdminTab = 'dashboard' | 'docker' | 'ssh' | 'processes';
+type ProcessSortKey = 'cpu' | 'memory' | 'name';
 type HoveredMetric = 'cpu' | 'ram' | 'storage' | 'network' | 'uptime' | 'diskio' | null;
 
-const MOOD_SEQUENCE: AvatarMood[] = ['idle', 'wink', 'idle', 'curious', 'happy', 'focus'];
+const formatProcMemory = (mb: number) =>
+  mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
+
+const formatProcRuntime = (secs: number) => {
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ${mins % 60}m`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ${hours % 24}h`;
+};
 
 interface AdminDashboardProps {
   data: DashboardResponse;
@@ -50,13 +71,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [isScanning, setIsScanning] = useState(false);
-  const [avatarMood, setAvatarMood] = useState<AvatarMood>('idle');
   const [hoveredMetric, setHoveredMetric] = useState<HoveredMetric>(null);
-  const [isPetted, setIsPetted] = useState(false);
   const [dockerFilter, setDockerFilter] = useState<'all' | 'running' | 'stopped'>('all');
   const [dockerSearch, setDockerSearch] = useState('');
   const [hoveredDockerSvc, setHoveredDockerSvc] = useState<HomelabService | null>(null);
+  const [processSearch, setProcessSearch] = useState('');
+  const [processSort, setProcessSort] = useState<ProcessSortKey>('cpu');
+  const [hoveredProcess, setHoveredProcess] = useState<ProcessInfo | null>(null);
   const [dockerLogModal, setDockerLogModal] = useState<{
     service: HomelabService;
     output: string;
@@ -78,42 +99,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const avatarRef = useRef<HTMLDivElement | null>(null);
   const eyesRef = useRef<HTMLDivElement | null>(null);
   const mouseTargetRef = useRef({ x: 0, y: 0 });
-  const scanningRef = useRef(false);
-  scanningRef.current = isScanning;
-  const petLastXRef = useRef<number | null>(null);
-  const petDistRef = useRef(0);
-  const petTimerRef = useRef<number | null>(null);
 
-  const handleAvatarPetMove = (e: React.MouseEvent<HTMLButtonElement>) => {
-    if (petLastXRef.current !== null) {
-      petDistRef.current += Math.abs(e.clientX - petLastXRef.current);
-      if (petDistRef.current > 36) {
-        petDistRef.current = 0;
-        setIsPetted(true);
-        if (petTimerRef.current) window.clearTimeout(petTimerRef.current);
-        petTimerRef.current = window.setTimeout(() => {
-          setIsPetted(false);
-        }, 1800);
-      }
-    }
-    petLastXRef.current = e.clientX;
-  };
-
-  // Cycle expressive eye moods only (holds nothing unless hovering a widget)
-  useEffect(() => {
-    let moodIdx = 0;
-    const moodTimer = window.setInterval(() => {
-      moodIdx = (moodIdx + 1) % MOOD_SEQUENCE.length;
-      setAvatarMood(MOOD_SEQUENCE[moodIdx]);
-    }, 3600);
-    return () => window.clearInterval(moodTimer);
-  }, []);
-
-  const handleAvatarPoke = () => {
-    setAvatarMood((prev) => (prev === 'happy' ? 'wink' : 'happy'));
-  };
-
-  // Buttery 60fps lerp eye tracking toward mouse (or smooth scan sweep)
+  // Smooth 60fps lerp eye tracking toward mouse
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!avatarRef.current) return;
@@ -137,16 +124,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     let curX = 0;
     let curY = 0;
 
-    const tick = (now: number) => {
-      const targetX = scanningRef.current
-        ? Math.sin(now * 0.007) * 10
-        : mouseTargetRef.current.x;
-      const targetY = scanningRef.current
-        ? Math.cos(now * 0.004) * 2
-        : mouseTargetRef.current.y;
-
-      curX += (targetX - curX) * 0.12;
-      curY += (targetY - curY) * 0.12;
+    const tick = () => {
+      curX += (mouseTargetRef.current.x - curX) * 0.12;
+      curY += (mouseTargetRef.current.y - curY) * 0.12;
 
       if (eyesRef.current) {
         eyesRef.current.style.transform = `translate3d(${curX.toFixed(2)}px, ${curY.toFixed(2)}px, 0)`;
@@ -194,8 +174,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleSystemCheck = async () => {
     setBusyId('adm-check');
-    setIsScanning(true);
-    window.setTimeout(() => setIsScanning(false), 1600);
     try {
       const res = await fetch('/api/events/check', { method: 'POST' });
       if (res.ok) {
@@ -408,10 +386,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <button
             type="button"
             onClick={onOpenProfileHub}
-            className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-300 to-cyan-500 text-zinc-950 font-bold text-lg flex items-center justify-center shadow-[0_8px_24px_rgba(34,211,238,0.28)] hover:scale-[1.04] transition-transform shrink-0"
+            className="hover:scale-[1.04] transition-transform shrink-0"
             title="Změnit profil"
           >
-            {profile.avatar_initials}
+            <AvatarBadge profile={profile} />
           </button>
 
           <div className="flex-1 apple-card px-5 py-2.5 flex flex-wrap items-center justify-between gap-4 min-w-0">
@@ -437,7 +415,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     ['dashboard', 'Dashboard', <Layers className="w-3.5 h-3.5" />],
                     ['docker', 'Docker', <Container className="w-3.5 h-3.5" />],
                     ['ssh', 'SSH', <Terminal className="w-3.5 h-3.5" />],
-                    ['events', 'Události', <Wrench className="w-3.5 h-3.5" />],
+                    ['processes', 'Procesy', <Activity className="w-3.5 h-3.5" />],
                   ] as [AdminTab, string, React.ReactNode][]
                 ).map(([key, label, icon]) => {
                   const active = activeTab === key;
@@ -581,13 +559,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </span>
               </div>
 
-              {/* Centerpiece: Steady Cyan Avatar (holds NOTHING unless hovering a telemetry widget) */}
-              <div
-                onMouseLeave={() => {
-                  petLastXRef.current = null;
-                }}
-                className="relative z-10 flex flex-col items-center justify-center my-auto py-2"
-              >
+              {/* Centerpiece: Steady Avatar (holds NOTHING unless hovering a telemetry widget) */}
+              <div className="relative z-10 flex flex-col items-center justify-center my-auto py-2">
                 {/* Dedicated fixed-height Inspector Card slot above head (zero layout shift) */}
                 <div className="h-[108px] w-full flex items-end justify-center mb-3">
                   <div
@@ -713,84 +686,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     {/* Two integrated cyan hands gripping the bottom edge */}
                     <span
                       aria-hidden="true"
-                      className="absolute -bottom-2.5 left-8 w-5 h-5 rounded-full bg-gradient-to-br from-cyan-100 via-cyan-300 to-sky-500 shadow-[0_4px_14px_rgba(34,211,238,0.55),inset_0_2px_4px_rgba(255,255,255,0.85)]"
+                      className="absolute -bottom-2.5 left-8 w-5 h-5 rounded-full bg-gradient-to-br from-rose-200 via-red-400 to-rose-600 shadow-[0_4px_14px_rgba(244,63,94,0.55),inset_0_2px_4px_rgba(255,228,230,0.8)]"
                     />
                     <span
                       aria-hidden="true"
-                      className="absolute -bottom-2.5 right-8 w-5 h-5 rounded-full bg-gradient-to-br from-cyan-100 via-cyan-300 to-sky-500 shadow-[0_4px_14px_rgba(34,211,238,0.55),inset_0_2px_4px_rgba(255,255,255,0.85)]"
+                      className="absolute -bottom-2.5 right-8 w-5 h-5 rounded-full bg-gradient-to-br from-rose-200 via-red-400 to-rose-600 shadow-[0_4px_14px_rgba(244,63,94,0.55),inset_0_2px_4px_rgba(255,228,230,0.8)]"
                     />
                   </div>
                 </div>
 
-                {/* Ambient cyan glow */}
+                {/* Ambient glow */}
                 <div
                   aria-hidden="true"
-                  className={`pointer-events-none absolute bottom-2 w-56 h-56 rounded-full bg-cyan-400/20 blur-3xl transition-all duration-500 ${isScanning || isPetted ? 'scale-125 bg-cyan-300/35' : ''
-                    }`}
+                  className={`pointer-events-none absolute bottom-2 translate-x-2 sm:translate-x-3 ${AVATAR_CONFIG.dashboardOrb.glowClass} rounded-full blur-3xl opacity-75 ${getProfileAvatarTheme(profile).glow}`}
+                  style={getProfileAvatarTheme(profile).glowStyle}
                 />
 
-                {/* Classic Round Cyan Avatar Orb (steady body; eyes animate; pettable!) */}
-                <div ref={avatarRef} className="relative z-20">
-                  <button
-                    type="button"
-                    onClick={handleAvatarPoke}
-                    onMouseMove={handleAvatarPetMove}
-                    title="Pohlaď mě nebo klikni"
-                    className={`w-40 h-40 rounded-full bg-gradient-to-br from-cyan-200 via-cyan-400 to-sky-500 shadow-[0_0_60px_rgba(34,211,238,0.45),inset_0_4px_14px_rgba(255,255,255,0.68)] relative flex items-center justify-center overflow-hidden transition-all duration-300 cursor-pointer active:scale-95 ${isPetted
-                        ? 'scale-[1.04] shadow-[0_0_85px_rgba(103,232,249,0.75),inset_0_4px_18px_rgba(255,255,255,0.85)]'
-                        : isScanning
-                          ? 'shadow-[0_0_80px_rgba(103,232,249,0.75),inset_0_4px_14px_rgba(255,255,255,0.85)]'
-                          : ''
-                      }`}
-                  >
-                    {/* Glossy highlight */}
-                    <div className="pointer-events-none absolute top-3 left-8 w-14 h-4 rounded-full bg-white/40 blur-[2px] -rotate-12" />
-
-                    {/* Smooth System Check Scan Sweep */}
-                    {isScanning && (
-                      <div className="pointer-events-none absolute inset-x-0 h-10 bg-gradient-to-b from-transparent via-white/60 to-transparent animate-avatar-scan" />
-                    )}
-
-                    {/* Smooth 60fps mouse-tracking + expressive moods (happy when petted) */}
-                    <div ref={eyesRef} className="flex items-center gap-3.5 will-change-transform">
-                      {(() => {
-                        const effectiveMood: AvatarMood = isPetted ? 'happy' : avatarMood;
-                        return (
-                          <>
-                            <span
-                              className={`bg-zinc-950/90 shadow-inner block transition-all duration-300 ease-out ${effectiveMood === 'happy'
-                                  ? 'w-4 h-2.5 rounded-full -translate-y-0.5'
-                                  : effectiveMood === 'curious'
-                                    ? 'w-3.5 h-8 rounded-full animate-avatar-blink'
-                                    : effectiveMood === 'focus'
-                                      ? 'w-3.5 h-3.5 rounded-full'
-                                      : 'w-3 h-7 rounded-full animate-avatar-blink'
-                                }`}
-                            />
-                            <span
-                              className={`bg-zinc-950/90 shadow-inner block transition-all duration-300 ease-out ${effectiveMood === 'wink'
-                                  ? 'w-3.5 h-1.5 rounded-full translate-y-1'
-                                  : effectiveMood === 'happy'
-                                    ? 'w-4 h-2.5 rounded-full -translate-y-0.5'
-                                    : effectiveMood === 'curious'
-                                      ? 'w-2.5 h-5 rounded-full translate-y-0.5 animate-avatar-blink'
-                                      : effectiveMood === 'focus'
-                                        ? 'w-3.5 h-3.5 rounded-full'
-                                        : 'w-3 h-7 rounded-full animate-avatar-blink'
-                                }`}
-                            />
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </button>
-
-                  {/* Petting Heart Feedback */}
-                  {isPetted && (
-                    <span className="pointer-events-none absolute -top-4 right-2 z-40 text-xs font-semibold px-2 py-0.5 rounded-full bg-cyan-300 text-zinc-950 shadow-lg animate-bounce">
-                      ♥
-                    </span>
-                  )}
+                <div ref={avatarRef} className="relative z-20 translate-x-2 sm:translate-x-3">
+                  <AvatarOrb
+                    profile={profile}
+                    interactive
+                    sizeClass={AVATAR_CONFIG.dashboardOrb.sizeClass}
+                    eyesRef={eyesRef}
+                  />
                 </div>
               </div>
 
@@ -799,11 +717,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <button
                   type="button"
                   onClick={handleSystemCheck}
-                  disabled={busyId === 'adm-check' || isScanning}
+                  disabled={busyId === 'adm-check'}
                   className="flex-1 py-2.5 px-3 rounded-xl bg-white hover:bg-zinc-200 text-zinc-950 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors"
                 >
                   <RefreshCw
-                    className={`w-3.5 h-3.5 ${busyId === 'adm-check' || isScanning ? 'animate-spin' : ''}`}
+                    className={`w-3.5 h-3.5 ${busyId === 'adm-check' ? 'animate-spin' : ''}`}
                   />
                   Zkontrolovat
                 </button>
@@ -916,13 +834,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </span>
                 </div>
 
-                {/* Cyan Avatar + Hover Inspector Card (holds nothing when idle) */}
-                <div
-                  onMouseLeave={() => {
-                    petLastXRef.current = null;
-                  }}
-                  className="relative z-10 flex flex-col items-center justify-center my-auto py-2"
-                >
+                {/* Avatar + Hover Inspector Card (holds nothing when idle) */}
+                <div className="relative z-10 flex flex-col items-center justify-center my-auto py-2">
                   <div className="h-[100px] w-full flex items-end justify-center mb-3">
                     <div
                       className={`relative w-64 rounded-2xl bg-[#111114]/95 backdrop-blur-2xl border border-white/[0.14] shadow-[0_20px_48px_rgba(0,0,0,0.85),inset_0_1px_0_rgba(255,255,255,0.14)] px-4 py-3 text-left transition-all duration-200 ease-out ${hoveredDockerSvc !== null
@@ -954,71 +867,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       )}
                       <span
                         aria-hidden="true"
-                        className="absolute -bottom-2.5 left-8 w-5 h-5 rounded-full bg-gradient-to-br from-cyan-100 via-cyan-300 to-sky-500 shadow-[0_4px_14px_rgba(34,211,238,0.55),inset_0_2px_4px_rgba(255,255,255,0.85)]"
+                        className="absolute -bottom-2.5 left-8 w-5 h-5 rounded-full bg-gradient-to-br from-rose-200 via-red-400 to-rose-600 shadow-[0_4px_14px_rgba(244,63,94,0.55),inset_0_2px_4px_rgba(255,228,230,0.8)]"
                       />
                       <span
                         aria-hidden="true"
-                        className="absolute -bottom-2.5 right-8 w-5 h-5 rounded-full bg-gradient-to-br from-cyan-100 via-cyan-300 to-sky-500 shadow-[0_4px_14px_rgba(34,211,238,0.55),inset_0_2px_4px_rgba(255,255,255,0.85)]"
+                        className="absolute -bottom-2.5 right-8 w-5 h-5 rounded-full bg-gradient-to-br from-rose-200 via-red-400 to-rose-600 shadow-[0_4px_14px_rgba(244,63,94,0.55),inset_0_2px_4px_rgba(255,228,230,0.8)]"
                       />
                     </div>
                   </div>
 
                   <div
                     aria-hidden="true"
-                    className={`pointer-events-none absolute bottom-2 w-52 h-52 rounded-full bg-cyan-400/20 blur-3xl transition-all duration-500 ${isPetted ? 'scale-125 bg-cyan-300/35' : ''
-                      }`}
+                    className={`pointer-events-none absolute bottom-2 translate-x-2 sm:translate-x-3 ${AVATAR_CONFIG.dashboardOrb.glowClass} rounded-full blur-3xl opacity-75 ${getProfileAvatarTheme(profile).glow}`}
+                    style={getProfileAvatarTheme(profile).glowStyle}
                   />
 
-                  <div ref={avatarRef} className="relative z-20">
-                    <button
-                      type="button"
-                      onClick={handleAvatarPoke}
-                      onMouseMove={handleAvatarPetMove}
-                      title="Pohlaď mě nebo klikni"
-                      className={`w-36 h-36 rounded-full bg-gradient-to-br from-cyan-200 via-cyan-400 to-sky-500 shadow-[0_0_55px_rgba(34,211,238,0.45),inset_0_4px_14px_rgba(255,255,255,0.68)] relative flex items-center justify-center overflow-hidden transition-all duration-300 cursor-pointer active:scale-95 ${isPetted
-                          ? 'scale-[1.04] shadow-[0_0_80px_rgba(103,232,249,0.75),inset_0_4px_18px_rgba(255,255,255,0.85)]'
-                          : ''
-                        }`}
-                    >
-                      <div className="pointer-events-none absolute top-3 left-7 w-12 h-3.5 rounded-full bg-white/40 blur-[2px] -rotate-12" />
-                      <div ref={eyesRef} className="flex items-center gap-3 will-change-transform">
-                        {(() => {
-                          const effectiveMood: AvatarMood = isPetted ? 'happy' : avatarMood;
-                          return (
-                            <>
-                              <span
-                                className={`bg-zinc-950/90 shadow-inner block transition-all duration-300 ease-out ${effectiveMood === 'happy'
-                                    ? 'w-4 h-2.5 rounded-full -translate-y-0.5'
-                                    : effectiveMood === 'curious'
-                                      ? 'w-3 h-7 rounded-full animate-avatar-blink'
-                                      : effectiveMood === 'focus'
-                                        ? 'w-3.5 h-3.5 rounded-full'
-                                        : 'w-2.5 h-6 rounded-full animate-avatar-blink'
-                                  }`}
-                              />
-                              <span
-                                className={`bg-zinc-950/90 shadow-inner block transition-all duration-300 ease-out ${effectiveMood === 'wink'
-                                    ? 'w-3.5 h-1.5 rounded-full translate-y-1'
-                                    : effectiveMood === 'happy'
-                                      ? 'w-4 h-2.5 rounded-full -translate-y-0.5'
-                                      : effectiveMood === 'curious'
-                                        ? 'w-2.5 h-5 rounded-full translate-y-0.5 animate-avatar-blink'
-                                        : effectiveMood === 'focus'
-                                          ? 'w-3.5 h-3.5 rounded-full'
-                                          : 'w-2.5 h-6 rounded-full animate-avatar-blink'
-                                  }`}
-                              />
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </button>
-
-                    {isPetted && (
-                      <span className="pointer-events-none absolute -top-4 right-2 z-40 text-xs font-semibold px-2 py-0.5 rounded-full bg-cyan-300 text-zinc-950 shadow-lg animate-bounce">
-                        ♥
-                      </span>
-                    )}
+                  <div ref={avatarRef} className="relative z-20 translate-x-2 sm:translate-x-3">
+                    <AvatarOrb
+                      profile={profile}
+                      interactive
+                      sizeClass={AVATAR_CONFIG.dashboardOrb.sizeClass}
+                      eyesRef={eyesRef}
+                    />
                   </div>
                 </div>
 
@@ -1299,13 +1169,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </button>
                 </div>
 
-                {/* Cyan Avatar + Hover Inspector for SSH connections */}
-                <div
-                  onMouseLeave={() => {
-                    petLastXRef.current = null;
-                  }}
-                  className="relative z-10 flex flex-col items-center justify-center my-auto py-1"
-                >
+                {/* Avatar + Hover Inspector for SSH connections */}
+                <div className="relative z-10 flex flex-col items-center justify-center my-auto py-1">
                   <div className="h-[92px] w-full flex items-end justify-center mb-2">
                     <div
                       className={`relative w-64 rounded-2xl bg-[#111114]/95 backdrop-blur-2xl border border-white/[0.14] shadow-[0_20px_48px_rgba(0,0,0,0.85),inset_0_1px_0_rgba(255,255,255,0.14)] px-4 py-2.5 text-left transition-all duration-200 ease-out ${hoveredSshConn !== null
@@ -1339,71 +1204,28 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       )}
                       <span
                         aria-hidden="true"
-                        className="absolute -bottom-2.5 left-8 w-5 h-5 rounded-full bg-gradient-to-br from-cyan-100 via-cyan-300 to-sky-500 shadow-[0_4px_14px_rgba(34,211,238,0.55),inset_0_2px_4px_rgba(255,255,255,0.85)]"
+                        className="absolute -bottom-2.5 left-8 w-5 h-5 rounded-full bg-gradient-to-br from-rose-200 via-red-400 to-rose-600 shadow-[0_4px_14px_rgba(244,63,94,0.55),inset_0_2px_4px_rgba(255,228,230,0.8)]"
                       />
                       <span
                         aria-hidden="true"
-                        className="absolute -bottom-2.5 right-8 w-5 h-5 rounded-full bg-gradient-to-br from-cyan-100 via-cyan-300 to-sky-500 shadow-[0_4px_14px_rgba(34,211,238,0.55),inset_0_2px_4px_rgba(255,255,255,0.85)]"
+                        className="absolute -bottom-2.5 right-8 w-5 h-5 rounded-full bg-gradient-to-br from-rose-200 via-red-400 to-rose-600 shadow-[0_4px_14px_rgba(244,63,94,0.55),inset_0_2px_4px_rgba(255,228,230,0.8)]"
                       />
                     </div>
                   </div>
 
                   <div
                     aria-hidden="true"
-                    className={`pointer-events-none absolute bottom-1 w-48 h-48 rounded-full bg-cyan-400/20 blur-3xl transition-all duration-500 ${isPetted ? 'scale-125 bg-cyan-300/35' : ''
-                      }`}
+                    className={`pointer-events-none absolute bottom-1 translate-x-2 sm:translate-x-3 ${AVATAR_CONFIG.dashboardOrb.glowClass} rounded-full blur-3xl opacity-75 ${getProfileAvatarTheme(profile).glow}`}
+                    style={getProfileAvatarTheme(profile).glowStyle}
                   />
 
-                  <div ref={avatarRef} className="relative z-20">
-                    <button
-                      type="button"
-                      onClick={handleAvatarPoke}
-                      onMouseMove={handleAvatarPetMove}
-                      title="Pohlaď mě nebo klikni"
-                      className={`w-32 h-32 rounded-full bg-gradient-to-br from-cyan-200 via-cyan-400 to-sky-500 shadow-[0_0_50px_rgba(34,211,238,0.45),inset_0_4px_14px_rgba(255,255,255,0.68)] relative flex items-center justify-center overflow-hidden transition-all duration-300 cursor-pointer active:scale-95 ${isPetted
-                          ? 'scale-[1.04] shadow-[0_0_75px_rgba(103,232,249,0.75),inset_0_4px_18px_rgba(255,255,255,0.85)]'
-                          : ''
-                        }`}
-                    >
-                      <div className="pointer-events-none absolute top-2.5 left-6 w-10 h-3 rounded-full bg-white/40 blur-[2px] -rotate-12" />
-                      <div ref={eyesRef} className="flex items-center gap-3 will-change-transform">
-                        {(() => {
-                          const effectiveMood: AvatarMood = isPetted ? 'happy' : avatarMood;
-                          return (
-                            <>
-                              <span
-                                className={`bg-zinc-950/90 shadow-inner block transition-all duration-300 ease-out ${effectiveMood === 'happy'
-                                    ? 'w-3.5 h-2 rounded-full -translate-y-0.5'
-                                    : effectiveMood === 'curious'
-                                      ? 'w-3 h-6 rounded-full animate-avatar-blink'
-                                      : effectiveMood === 'focus'
-                                        ? 'w-3 h-3 rounded-full'
-                                        : 'w-2.5 h-6 rounded-full animate-avatar-blink'
-                                  }`}
-                              />
-                              <span
-                                className={`bg-zinc-950/90 shadow-inner block transition-all duration-300 ease-out ${effectiveMood === 'wink'
-                                    ? 'w-3 h-1.5 rounded-full translate-y-1'
-                                    : effectiveMood === 'happy'
-                                      ? 'w-3.5 h-2 rounded-full -translate-y-0.5'
-                                      : effectiveMood === 'curious'
-                                        ? 'w-2 h-4 rounded-full translate-y-0.5 animate-avatar-blink'
-                                        : effectiveMood === 'focus'
-                                          ? 'w-3 h-3 rounded-full'
-                                          : 'w-2.5 h-6 rounded-full animate-avatar-blink'
-                                  }`}
-                              />
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </button>
-
-                    {isPetted && (
-                      <span className="pointer-events-none absolute -top-4 right-1 z-40 text-xs font-semibold px-2 py-0.5 rounded-full bg-cyan-300 text-zinc-950 shadow-lg animate-bounce">
-                        ♥
-                      </span>
-                    )}
+                  <div ref={avatarRef} className="relative z-20 translate-x-2 sm:translate-x-3">
+                    <AvatarOrb
+                      profile={profile}
+                      interactive
+                      sizeClass={AVATAR_CONFIG.dashboardOrb.sizeClass}
+                      eyesRef={eyesRef}
+                    />
                   </div>
                 </div>
 
@@ -1585,56 +1407,307 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         })()}
 
         {/* ================================================================ */}
-        {/* TAB 4: SYSTEM EVENTS & DIAGNOSTICS                               */}
+        {/* TAB 4: SYSTEM PROCESSES                                          */}
         {/* ================================================================ */}
-        {activeTab === 'events' && (
-          <main className="apple-card p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-cyan-300" />
-                <h2 className="text-base font-semibold text-white">Systémové události</h2>
-              </div>
-              <button
-                type="button"
-                onClick={handleSystemCheck}
-                disabled={busyId === 'adm-check'}
-                className="px-4 py-2 rounded-full bg-white text-zinc-950 font-semibold text-xs flex items-center gap-1.5 hover:bg-zinc-200 transition-colors"
-              >
-                <RefreshCw
-                  className={`w-3.5 h-3.5 ${busyId === 'adm-check' ? 'animate-spin' : ''}`}
-                />
-                Zkontrolovat teď
-              </button>
-            </div>
+        {activeTab === 'processes' && (() => {
+          const allProcesses = data.processes ?? [];
+          const q = processSearch.trim().toLowerCase();
+          const filteredProcesses = allProcesses
+            .filter(
+              (p) =>
+                !q ||
+                p.name.toLowerCase().includes(q) ||
+                p.cmd.toLowerCase().includes(q) ||
+                String(p.pid).includes(q)
+            )
+            .slice()
+            .sort((a, b) => {
+              if (processSort === 'memory') {
+                return b.memory_mb - a.memory_mb || b.cpu_percent - a.cpu_percent;
+              }
+              if (processSort === 'name') {
+                return a.name.localeCompare(b.name, 'cs') || b.memory_mb - a.memory_mb;
+              }
+              return b.cpu_percent - a.cpu_percent || b.memory_mb - a.memory_mb;
+            });
 
-            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
-              {data.events.map((ev) => (
-                <div
-                  key={ev.id}
-                  className="apple-well p-3.5 flex items-start justify-between gap-3"
-                >
-                  <div className="space-y-0.5 min-w-0">
-                    <div className="flex items-center gap-2 text-xs">
+          return (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 lg:h-[calc(100vh-148px)] lg:min-h-[600px] lg:overflow-hidden">
+              {/* LEFT COLUMN (4 COLS): STICKY AVATAR INSPECTOR & PROCESS CONTROLS */}
+              <section className="lg:col-span-4 apple-card p-6 flex flex-col justify-between relative overflow-hidden lg:h-full">
+                {/* Header */}
+                <div className="relative z-10 flex items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white tracking-tight">
+                      Systémové procesy
+                    </h2>
+                    <p className="text-xs text-zinc-400">
+                      {mon.host_name} · {mon.cpu_cores} jader
+                    </p>
+                  </div>
+                  <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-400/30">
+                    {mon.process_count} celkem
+                  </span>
+                </div>
+
+                {/* Avatar + Hover Inspector Card */}
+                <div className="relative z-10 flex flex-col items-center justify-center my-auto py-2">
+                  <div className="h-[100px] w-full flex items-end justify-center mb-3">
+                    <div
+                      className={`relative w-64 rounded-2xl bg-[#111114]/95 backdrop-blur-2xl border border-white/[0.14] shadow-[0_20px_48px_rgba(0,0,0,0.85),inset_0_1px_0_rgba(255,255,255,0.14)] px-4 py-3 text-left transition-all duration-200 ease-out ${hoveredProcess !== null
+                          ? 'opacity-100 translate-y-0 scale-100'
+                          : 'opacity-0 translate-y-2 scale-95 pointer-events-none'
+                        }`}
+                    >
+                      {hoveredProcess && (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-cyan-300">
+                            <span className="truncate">{hoveredProcess.name}</span>
+                            <span className="font-mono text-zinc-400 shrink-0">
+                              PID {hoveredProcess.pid}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 text-[11px]">
+                            <span className="text-zinc-400 shrink-0">CPU / RAM</span>
+                            <span className="font-mono text-white truncate">
+                              {hoveredProcess.cpu_percent.toFixed(1)}% · {formatProcMemory(hoveredProcess.memory_mb)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 text-[11px]">
+                            <span className="text-zinc-400 shrink-0">Stav · Běží</span>
+                            <span className="font-mono text-zinc-200 truncate">
+                              {hoveredProcess.status} · {formatProcRuntime(hoveredProcess.run_time_secs)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                       <span
-                        className={`w-2 h-2 rounded-full ${ev.level === 'ok'
-                            ? 'bg-emerald-400'
-                            : ev.level === 'warn'
-                              ? 'bg-amber-400'
-                              : 'bg-zinc-400'
-                          }`}
+                        aria-hidden="true"
+                        className="absolute -bottom-2.5 left-8 w-5 h-5 rounded-full bg-gradient-to-br from-rose-200 via-red-400 to-rose-600 shadow-[0_4px_14px_rgba(244,63,94,0.55),inset_0_2px_4px_rgba(255,228,230,0.8)]"
                       />
-                      <span className="font-semibold text-white">{ev.source}</span>
-                      <span className="font-mono text-[11px] text-zinc-500">
-                        {ev.timestamp}
-                      </span>
+                      <span
+                        aria-hidden="true"
+                        className="absolute -bottom-2.5 right-8 w-5 h-5 rounded-full bg-gradient-to-br from-rose-200 via-red-400 to-rose-600 shadow-[0_4px_14px_rgba(244,63,94,0.55),inset_0_2px_4px_rgba(255,228,230,0.8)]"
+                      />
                     </div>
-                    <p className="text-xs text-zinc-300">{ev.message}</p>
+                  </div>
+
+                  <div
+                    aria-hidden="true"
+                    className={`pointer-events-none absolute bottom-2 translate-x-2 sm:translate-x-3 ${AVATAR_CONFIG.dashboardOrb.glowClass} rounded-full blur-3xl opacity-75 ${getProfileAvatarTheme(profile).glow}`}
+                    style={getProfileAvatarTheme(profile).glowStyle}
+                  />
+
+                  <div ref={avatarRef} className="relative z-20 translate-x-2 sm:translate-x-3">
+                    <AvatarOrb
+                      profile={profile}
+                      interactive
+                      sizeClass={AVATAR_CONFIG.dashboardOrb.sizeClass}
+                      eyesRef={eyesRef}
+                    />
                   </div>
                 </div>
-              ))}
+
+                {/* Process Filter & Sort Controls */}
+                <div className="relative z-10 space-y-3 pt-2">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={processSearch}
+                      onChange={(e) => setProcessSearch(e.target.value)}
+                      placeholder="Hledat proces, příkaz nebo PID..."
+                      className="apple-well w-full pl-9 pr-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-white/25"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1.5 bg-white/[0.04] p-1 rounded-xl border border-white/[0.08]">
+                    {(
+                      [
+                        ['cpu', 'CPU %'],
+                        ['memory', 'Paměť'],
+                        ['name', 'Název'],
+                      ] as [ProcessSortKey, string][]
+                    ).map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setProcessSort(key)}
+                        className={`py-1.5 rounded-lg text-[11px] font-medium transition-colors ${processSort === key
+                            ? 'bg-white text-zinc-950 font-semibold'
+                            : 'text-zinc-400 hover:text-white'
+                          }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void onRefresh()}
+                      className="flex-1 py-2 px-3 rounded-xl bg-white/[0.07] hover:bg-white/[0.13] border border-white/[0.1] text-xs font-medium text-white flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-cyan-300" />
+                      Obnovit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('ssh');
+                        void runSshCommand('ps aux --sort=-%cpu | head -n 20');
+                      }}
+                      className="flex-1 py-2 px-3 rounded-xl bg-white hover:bg-zinc-200 text-zinc-950 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <Terminal className="w-3.5 h-3.5" />
+                      ps aux
+                    </button>
+                  </div>
+                </div>
+              </section>
+
+              {/* RIGHT COLUMN (8 COLS): SUMMARY KPI STRIP + PROCESS LIST */}
+              <div className="lg:col-span-8 lg:h-full flex flex-col gap-4 min-h-0">
+                {/* Summary KPI Strip */}
+                <div className="grid grid-cols-3 gap-4 shrink-0">
+                  <div className="apple-card px-5 py-3.5 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[11px] text-zinc-400">Aktivní procesy</div>
+                      <div className="text-2xl font-semibold font-mono text-white mt-0.5">
+                        {mon.process_count}
+                      </div>
+                      <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                        zobrazeno {filteredProcesses.length}
+                      </div>
+                    </div>
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_10px_#34d399] shrink-0" />
+                  </div>
+
+                  <div className="apple-card px-5 py-3.5 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[11px] text-zinc-400">CPU zátěž</div>
+                      <div className="text-2xl font-semibold font-mono text-white mt-0.5">
+                        {mon.cpu_percent.toFixed(1)}%
+                      </div>
+                      <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                        {mon.top_cpu_proc}
+                      </div>
+                    </div>
+                    <Cpu className="w-4 h-4 text-cyan-300 shrink-0" />
+                  </div>
+
+                  <div className="apple-card px-5 py-3.5 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[11px] text-zinc-400">Paměť RAM</div>
+                      <div className="text-2xl font-semibold font-mono text-white mt-0.5">
+                        {mon.ram_used_gb.toFixed(1)} GB
+                      </div>
+                      <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                        {mon.top_ram_proc}
+                      </div>
+                    </div>
+                    <MemoryStick className="w-4 h-4 text-emerald-300 shrink-0" />
+                  </div>
+                </div>
+
+                {/* Process List Card */}
+                <div className="apple-card p-4 sm:p-5 flex-1 min-h-0 flex flex-col">
+                  <div className="grid grid-cols-12 gap-3 px-3 pb-2.5 border-b border-white/[0.08] text-[11px] font-medium text-zinc-400 uppercase tracking-wider shrink-0">
+                    <div className="col-span-5">Proces / Příkaz</div>
+                    <div className="col-span-2 text-right">PID</div>
+                    <div className="col-span-2 text-right">CPU</div>
+                    <div className="col-span-3 text-right">Paměť</div>
+                  </div>
+
+                  <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-1.5 mt-2">
+                    {filteredProcesses.length === 0 ? (
+                      <div className="apple-well p-8 text-center text-xs text-zinc-500">
+                        Žádné procesy neodpovídají filtru „{processSearch}“.
+                      </div>
+                    ) : (
+                      filteredProcesses.map((proc) => {
+                        const isHighCpu = proc.cpu_percent >= 25;
+                        const isActiveCpu = proc.cpu_percent >= 1;
+                        const cpuBarWidth = Math.min(100, Math.max(2, proc.cpu_percent));
+
+                        return (
+                          <div
+                            key={proc.pid}
+                            onMouseEnter={() => setHoveredProcess(proc)}
+                            onMouseLeave={() => setHoveredProcess(null)}
+                            className="apple-well px-3.5 py-2.5 grid grid-cols-12 items-center gap-3 hover:border-white/25 transition-colors cursor-default"
+                          >
+                            <div className="col-span-5 flex items-center gap-2.5 min-w-0">
+                              <span
+                                className={`w-2 h-2 rounded-full shrink-0 ${isHighCpu
+                                    ? 'bg-amber-400 shadow-[0_0_8px_#fbbf24]'
+                                    : isActiveCpu
+                                      ? 'bg-cyan-400 shadow-[0_0_8px_#22d3ee]'
+                                      : proc.status === 'Run'
+                                        ? 'bg-emerald-400'
+                                        : 'bg-zinc-600'
+                                  }`}
+                              />
+                              <div className="min-w-0">
+                                <div className="text-xs font-semibold text-white truncate">
+                                  {proc.name}
+                                </div>
+                                <div className="text-[11px] font-mono text-zinc-500 truncate">
+                                  {proc.cmd}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="col-span-2 text-right">
+                              <div className="text-xs font-mono text-zinc-300">
+                                {proc.pid}
+                              </div>
+                              <div className="text-[10px] font-mono text-zinc-500">
+                                {proc.status}
+                              </div>
+                            </div>
+
+                            <div className="col-span-2 text-right">
+                              <div
+                                className={`text-xs font-mono font-semibold ${isHighCpu
+                                    ? 'text-amber-300'
+                                    : isActiveCpu
+                                      ? 'text-cyan-300'
+                                      : 'text-zinc-300'
+                                  }`}
+                              >
+                                {proc.cpu_percent.toFixed(1)}%
+                              </div>
+                              <div className="h-1 w-full rounded-full bg-white/[0.06] overflow-hidden mt-1">
+                                <div
+                                  className={`h-full rounded-full ${isHighCpu
+                                      ? 'bg-amber-400'
+                                      : 'bg-cyan-400'
+                                    }`}
+                                  style={{ width: `${cpuBarWidth}%` }}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="col-span-3 text-right">
+                              <div className="text-xs font-mono text-white">
+                                {formatProcMemory(proc.memory_mb)}
+                              </div>
+                              <div className="text-[10px] font-mono text-zinc-500">
+                                {formatProcRuntime(proc.run_time_secs)}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
-          </main>
-        )}
+          );
+        })()}
       </div>
 
       {/* Docker Live Logs Modal */}

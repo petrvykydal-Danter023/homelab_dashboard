@@ -34,6 +34,13 @@ import type {
   UserShortcut,
 } from './types';
 import { AdminDashboard } from './AdminDashboard';
+import {
+  AVATAR_COLOR_OPTIONS,
+  AVATAR_CONFIG,
+  AvatarBadge,
+  AvatarOrb,
+  getProfileAvatarTheme,
+} from './Avatar';
 
 function renderShortcutIcon(icon: string, className = 'w-4 h-4') {
   switch (icon) {
@@ -71,6 +78,31 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function arrangeVFormation(profiles: UserProfile[]): UserProfile[] {
+  if (profiles.length <= 2) return profiles;
+  const rankOrder = ['prof-peta', 'prof-mamka', 'prof-tata', 'prof-linda', 'prof-sudo'];
+  const sorted = [...profiles].sort((a, b) => {
+    const ia = rankOrder.indexOf(a.id);
+    const ib = rankOrder.indexOf(b.id);
+    if (ia !== -1 && ib !== -1) return ia - ib;
+    if (ia !== -1) return -1;
+    if (ib !== -1) return 1;
+    if (a.is_admin !== b.is_admin) return Number(a.is_admin) - Number(b.is_admin);
+    return a.name.localeCompare(b.name, 'cs');
+  });
+
+  // Place index 0 at the front apex, then fan wings outward left/right
+  const result: UserProfile[] = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    if (i % 2 === 1) {
+      result.unshift(sorted[i]);
+    } else {
+      result.push(sorted[i]);
+    }
+  }
+  return result;
+}
+
 export default function App() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -83,7 +115,6 @@ export default function App() {
   const [showProfileHub, setShowProfileHub] = useState<boolean>(() => {
     return !window.localStorage.getItem('vykylab_profile_selected');
   });
-  const [hubCreating, setHubCreating] = useState(false);
 
   // PIN unlock prompt for protected profiles (e.g. sudo)
   const [pinTargetProfile, setPinTargetProfile] = useState<UserProfile | null>(null);
@@ -107,8 +138,9 @@ export default function App() {
   const [editWorkspace, setEditWorkspace] = useState('');
   const [editRole, setEditRole] = useState('');
   const [editLocation, setEditLocation] = useState('');
+  const [editAvatarColor, setEditAvatarColor] = useState('cyan');
   const [newProfileName, setNewProfileName] = useState('');
-  const [newProfileRole, setNewProfileRole] = useState('Člen rodiny');
+  const [newProfileLocation, setNewProfileLocation] = useState('Jevíčko');
 
   // Shortcut form state
   const [scLabel, setScLabel] = useState('');
@@ -151,6 +183,7 @@ export default function App() {
       setEditWorkspace(data.active_profile.workspace_label);
       setEditRole(data.active_profile.role);
       setEditLocation(data.active_profile.location);
+      setEditAvatarColor(data.active_profile.avatar_color || 'cyan');
     }
   }, [data?.active_profile?.id]);
 
@@ -221,6 +254,7 @@ export default function App() {
           workspace_label: editWorkspace,
           role: editRole,
           location: editLocation,
+          avatar_color: editAvatarColor,
         }),
       });
       const json = await res.json();
@@ -243,8 +277,9 @@ export default function App() {
         body: JSON.stringify({
           name: newProfileName.trim(),
           workspace_label: data?.active_profile.workspace_label || 'Vykylab',
-          role: newProfileRole.trim() || 'Uživatel',
-          location: data?.active_profile.location || 'Praha',
+          role: 'Uživatel',
+          location: newProfileLocation.trim() || 'Jevíčko',
+          avatar_color: 'cyan',
         }),
       });
       const json = await res.json();
@@ -253,7 +288,6 @@ export default function App() {
         window.localStorage.setItem('vykylab_profile_selected', json.dashboard.active_profile.id);
       }
       setNewProfileName('');
-      setHubCreating(false);
       setShowProfileHub(false);
       showToast(true, 'Nový profil vytvořen a aktivován.');
     } finally {
@@ -408,6 +442,7 @@ export default function App() {
   }
 
   const profile = data.active_profile;
+  const profileTheme = getProfileAvatarTheme(profile);
   const serviceShortcuts = filteredShortcuts.filter((s) => s.category !== 'account');
   const accountShortcuts = filteredShortcuts.filter((s) => s.category === 'account');
 
@@ -417,9 +452,9 @@ export default function App() {
         onSubmit={handlePinSubmit}
         className="apple-card w-full max-w-xs p-6 space-y-4 text-center"
       >
-        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-300 to-cyan-500 text-zinc-950 flex items-center justify-center mx-auto shadow-[0_8px_24px_rgba(34,211,238,0.28)]">
+        <AvatarBadge profile={pinTargetProfile} className="mx-auto">
           <Lock className="w-5 h-5" />
-        </div>
+        </AvatarBadge>
         <div>
           <h2 className="text-base font-semibold text-white">
             Odemknout profil {pinTargetProfile.name}
@@ -469,15 +504,18 @@ export default function App() {
   );
 
   if (showProfileHub) {
+    const vProfiles = arrangeVFormation(data.profiles);
+    const centerIdx = (vProfiles.length - 1) / 2;
+
     return (
       <div
-        className="min-h-screen bg-[#09090b] text-white flex flex-col items-center justify-center p-6"
+        className="min-h-screen bg-[#09090b] text-white flex flex-col items-center justify-center px-4 py-10 overflow-x-hidden"
         style={{
           backgroundImage:
             'radial-gradient(ellipse 65% 45% at 50% 0%, rgba(34,211,238,0.13), transparent)',
         }}
       >
-        <div className="w-full max-w-3xl space-y-8">
+        <div className="w-full max-w-5xl space-y-8">
           <div className="text-center space-y-3">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.05] border border-white/[0.08] text-xs text-zinc-300">
               <span
@@ -492,116 +530,71 @@ export default function App() {
             <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">
               Vyber si profil
             </h1>
-            <p className="text-sm text-zinc-400 max-w-md mx-auto">
-              Otevři svůj osobní dashboard se svými zkratkami a oblíbenými službami, nebo vytvoř nový profil.
-            </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {data.profiles.map((p) => {
+          {/* V-Formation ("Rojnice do V") */}
+          <div className="group/vrow flex flex-wrap sm:flex-nowrap items-end justify-center gap-5 sm:gap-2 pt-8 pb-6">
+            {vProfiles.map((p, idx) => {
               const isCurrent = p.id === profile.id;
+              const cardTheme = getProfileAvatarTheme(p);
+              const dist = Math.abs(idx - centerIdx);
+              const depthClass =
+                dist < 0.5
+                  ? 'sm:translate-y-7 z-30'
+                  : dist < 1.5
+                    ? 'sm:translate-y-0 z-20'
+                    : 'sm:-translate-y-7 z-10';
+              const eyeDirection =
+                idx < centerIdx
+                  ? 'translate-x-1.5 group-hover:translate-x-0 transition-transform duration-300'
+                  : idx > centerIdx
+                    ? '-translate-x-1.5 group-hover:translate-x-0 transition-transform duration-300'
+                    : '';
+
               return (
                 <button
                   key={p.id}
                   type="button"
                   onClick={() => handleSelectProfile(p, true)}
                   disabled={busyId === `act-${p.id}`}
-                  className="group apple-card p-5 text-left flex flex-col justify-between gap-5 hover:-translate-y-1 hover:bg-white/[0.04] transition-all"
+                  className={`group relative flex flex-col items-center focus:outline-none transition-all duration-300 ease-out hover:!z-50 group-hover/vrow:opacity-45 hover:!opacity-100 ${idx > 0 ? 'sm:-ml-2' : ''} ${depthClass}`}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-300 to-cyan-500 text-zinc-950 font-bold text-lg flex items-center justify-center shadow-[0_8px_24px_rgba(34,211,238,0.28)] group-hover:scale-105 transition-transform">
-                      {p.avatar_initials}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {p.has_pin && <Lock className="w-3.5 h-3.5 text-zinc-400" />}
-                      <ArrowRight className="w-4 h-4 text-zinc-500 group-hover:text-white group-hover:translate-x-0.5 transition-all" />
-                    </div>
+                  {/* Ambient Glow behind Orb */}
+                  <div
+                    aria-hidden="true"
+                    className={`pointer-events-none absolute -top-4 ${AVATAR_CONFIG.orb.glowClass} rounded-full blur-2xl opacity-50 group-hover:opacity-100 transition-opacity duration-300 ${cardTheme.glow}`}
+                    style={cardTheme.glowStyle}
+                  />
+
+                  {/* Expressive Colored Avatar Orb */}
+                  <div className="mb-2 transition-transform duration-300 ease-out group-hover:-translate-y-3">
+                    <AvatarOrb
+                      profile={p}
+                      eyeShiftClass={eyeDirection}
+                      showLock
+                    />
                   </div>
 
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base font-semibold text-white truncate">
-                        {p.name}
-                      </span>
-                      {p.is_admin && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300 border border-amber-400/30">
-                          Admin
-                        </span>
-                      )}
-                      {isCurrent && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-400/15 text-cyan-300 border border-cyan-400/30">
-                          Aktivní
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-zinc-400">
-                      {p.role} · {p.location}
-                    </div>
-                  </div>
+                  {/* Subtle floor shadow */}
+                  <div
+                    aria-hidden="true"
+                    className="w-24 h-2.5 rounded-full bg-black/75 blur-sm mb-3 transition-all duration-300 ease-out group-hover:w-20 group-hover:opacity-40"
+                  />
 
-                  <div className="pt-3 border-t border-white/[0.07] flex items-center justify-between text-[11px] text-zinc-400">
-                    <span>{p.shortcuts.length} zkratek</span>
-                    <span>{p.favorite_services.length} oblíbených</span>
+                  {/* Minimal Name Pill */}
+                  <div
+                    className={`px-5 py-2 rounded-2xl border backdrop-blur-xl transition-all duration-300 ease-out flex items-center justify-center ${isCurrent
+                        ? 'bg-white/[0.1] border-white/25 shadow-[0_10px_28px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.16)]'
+                        : 'bg-[#111115]/85 border-white/[0.08] shadow-[0_8px_20px_rgba(0,0,0,0.5)]'
+                      } group-hover:bg-white/[0.14] group-hover:border-white/35 group-hover:-translate-y-0.5 group-hover:shadow-[0_14px_32px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.22)]`}
+                  >
+                    <span className="text-sm font-semibold tracking-tight text-zinc-200 group-hover:text-white transition-colors whitespace-nowrap">
+                      {p.name}
+                    </span>
                   </div>
                 </button>
               );
             })}
-
-            {!hubCreating ? (
-              <button
-                type="button"
-                onClick={() => setHubCreating(true)}
-                className="apple-card border-dashed border-white/[0.14] hover:border-white/[0.28] p-5 flex flex-col items-center justify-center gap-2.5 text-center min-h-[184px] hover:bg-white/[0.03] transition-all"
-              >
-                <div className="w-11 h-11 rounded-2xl bg-white/[0.07] border border-white/[0.1] flex items-center justify-center text-white">
-                  <UserPlus className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-sm font-semibold text-white">Nový profil</div>
-                  <div className="text-xs text-zinc-400 mt-0.5">Přidat uživatele</div>
-                </div>
-              </button>
-            ) : (
-              <form
-                onSubmit={handleCreateProfile}
-                className="apple-card p-5 flex flex-col justify-between gap-3 min-h-[184px]"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-white">Nový profil</span>
-                  <button
-                    type="button"
-                    onClick={() => setHubCreating(false)}
-                    className="text-zinc-400 hover:text-white"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    autoFocus
-                    value={newProfileName}
-                    onChange={(e) => setNewProfileName(e.target.value)}
-                    placeholder="Jméno (např. Máma)"
-                    className="apple-well w-full px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none"
-                  />
-                  <input
-                    type="text"
-                    value={newProfileRole}
-                    onChange={(e) => setNewProfileRole(e.target.value)}
-                    placeholder="Role"
-                    className="apple-well w-full px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={busyId === 'create-prof' || !newProfileName.trim()}
-                  className="w-full py-2 rounded-xl bg-white text-zinc-950 font-semibold text-xs hover:bg-zinc-200 disabled:opacity-40 transition-colors"
-                >
-                  Vytvořit a otevřít
-                </button>
-              </form>
-            )}
           </div>
         </div>
         {pinModal}
@@ -609,7 +602,7 @@ export default function App() {
     );
   }
 
-  if (profile.is_admin) {
+  if (profile.is_admin && (profile.id === 'prof-sudo' || profile.name === 'sudo')) {
     return (
       <>
         <AdminDashboard
@@ -651,10 +644,10 @@ export default function App() {
           <button
             type="button"
             onClick={() => setProfileModalOpen(true)}
-            className="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-300 to-cyan-500 text-zinc-950 font-bold text-lg flex items-center justify-center shadow-[0_8px_24px_rgba(34,211,238,0.28)] hover:scale-[1.04] transition-transform shrink-0"
+            className="hover:scale-[1.04] transition-transform shrink-0"
             title="Přepnout nebo upravit profil"
           >
-            {profile.avatar_initials}
+            <AvatarBadge profile={profile} />
           </button>
 
           <div className="flex-1 apple-card px-5 py-2.5 flex items-center justify-between gap-4 min-w-0">
@@ -717,29 +710,24 @@ export default function App() {
           <div className="lg:col-span-7 flex flex-col gap-5">
             {/* 1. Hero Greeting Card */}
             <section className="group/hero apple-card p-6 sm:p-8 relative overflow-hidden min-h-[260px] flex flex-col justify-between">
-              {/* Cyan Ambient Glow */}
+              {/* Profile Ambient Glow */}
               <div
                 aria-hidden="true"
-                className="pointer-events-none absolute -bottom-24 right-4 w-72 h-72 rounded-full bg-cyan-400/25 blur-3xl animate-avatar-pulse"
+                className={`pointer-events-none absolute -bottom-24 right-0 w-72 h-72 rounded-full blur-3xl opacity-65 ${profileTheme.glow}`}
+                style={profileTheme.glowStyle}
               />
 
-              {/* Animated Cyan Avatar Orb with Eyes */}
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute -bottom-16 right-8 sm:right-14 w-44 h-44 transition-transform duration-500 ease-out group-hover/hero:-translate-y-2 group-hover/hero:scale-[1.03]"
-              >
-                <div className="w-full h-full rounded-full bg-gradient-to-br from-cyan-200 via-cyan-400 to-sky-500 shadow-[0_0_50px_rgba(34,211,238,0.45),inset_0_4px_14px_rgba(255,255,255,0.65)] animate-avatar-float relative flex items-start justify-center pt-11 pr-6">
-                  {/* Glossy highlight */}
-                  <div className="absolute top-3 left-8 w-14 h-5 rounded-full bg-white/35 blur-[2px] -rotate-12" />
-                  {/* Eyes */}
-                  <div className="flex items-center gap-3.5 transition-transform duration-300 group-hover/hero:translate-x-1.5 group-hover/hero:-translate-y-0.5">
-                    <span className="w-3 h-7 rounded-full bg-zinc-950/90 shadow-inner animate-avatar-blink block" />
-                    <span className="w-3 h-7 rounded-full bg-zinc-950/90 shadow-inner animate-avatar-blink block" />
-                  </div>
-                </div>
+              {/* Profile Avatar Orb (interactive: click eyes + global random blink) */}
+              <div className="absolute -bottom-11 right-3 sm:right-6 z-30 transition-transform duration-300 ease-out group-hover/hero:-translate-y-1.5">
+                <AvatarOrb
+                  profile={profile}
+                  interactive
+                  sizeClass={AVATAR_CONFIG.dashboardOrb.sizeClass}
+                  eyeShiftClass="pr-5 -mt-6"
+                />
               </div>
 
-              <div className="relative z-10 space-y-4">
+              <div className="relative z-20 pointer-events-none space-y-4">
                 <p className="text-sm font-medium text-zinc-400">
                   Vítej zpět, <span className="text-white">{profile.name}</span>
                 </p>
@@ -771,8 +759,8 @@ export default function App() {
                 </h1>
               </div>
 
-              <div className="relative z-10 flex flex-wrap items-center gap-4 pt-6">
-                <div className="relative flex-1 min-w-[210px] max-w-xs">
+              <div className="relative z-20 pointer-events-none flex flex-wrap items-center gap-4 pt-6">
+                <div className="relative pointer-events-auto flex-1 min-w-[210px] max-w-xs">
                   <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
@@ -795,7 +783,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setEventsModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-zinc-300 hover:text-white transition-colors"
+                  className="pointer-events-auto inline-flex items-center gap-1.5 text-xs font-medium text-zinc-300 hover:text-white transition-colors"
                 >
                   <span>Události</span>
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -1071,8 +1059,8 @@ export default function App() {
                         }}
                         disabled={busyId === `fav-${svc.id}`}
                         className={`p-2 rounded-xl border transition-colors ${isFav
-                            ? 'bg-white text-zinc-950 border-white'
-                            : 'bg-white/[0.05] hover:bg-white/[0.12] text-zinc-400 hover:text-white border-white/[0.08]'
+                            ? 'bg-rose-400/20 hover:bg-rose-400/30 text-rose-300 border-rose-300/40 shadow-[0_0_14px_rgba(251,113,133,0.2)]'
+                            : 'bg-white/[0.05] hover:bg-rose-400/10 text-zinc-400 hover:text-rose-300 border-white/[0.08] hover:border-rose-300/25'
                           }`}
                         title={isFav ? 'Odebrat z oblíbených v profilu' : 'Přidat do oblíbených'}
                       >
@@ -1173,8 +1161,9 @@ export default function App() {
                         }`}
                     >
                       <span
-                        className={`w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center ${active ? 'bg-zinc-900 text-white' : 'bg-white/[0.12] text-white'
-                          }`}
+                        className={`${AVATAR_CONFIG.pill.sizeClass} font-bold flex items-center justify-center ${
+                          active ? 'bg-zinc-900 text-white' : getProfileAvatarTheme(p).badge
+                        }`}
                       >
                         {p.avatar_initials}
                       </span>
@@ -1208,13 +1197,18 @@ export default function App() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] text-zinc-400 mb-1">Role</label>
-                  <input
-                    type="text"
-                    value={editRole}
-                    onChange={(e) => setEditRole(e.target.value)}
+                  <label className="block text-[11px] text-zinc-400 mb-1">Barva avatara</label>
+                  <select
+                    value={editAvatarColor}
+                    onChange={(e) => setEditAvatarColor(e.target.value)}
                     className="apple-well w-full px-3 py-2 text-xs text-white outline-none focus:border-white/30"
-                  />
+                  >
+                    {AVATAR_COLOR_OPTIONS.map((c) => (
+                      <option key={c.id} value={c.id} className="bg-zinc-900 text-white">
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[11px] text-zinc-400 mb-1">Lokalita</label>
@@ -1253,9 +1247,9 @@ export default function App() {
                 />
                 <input
                   type="text"
-                  value={newProfileRole}
-                  onChange={(e) => setNewProfileRole(e.target.value)}
-                  placeholder="Role"
+                  value={newProfileLocation}
+                  onChange={(e) => setNewProfileLocation(e.target.value)}
+                  placeholder="Lokalita"
                   className="apple-well w-28 px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none"
                 />
                 <button

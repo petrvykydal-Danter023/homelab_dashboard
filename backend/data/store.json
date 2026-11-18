@@ -8,6 +8,7 @@
       "role": "Správce",
       "location": "Jevíčko",
       "avatar_initials": "T",
+      "avatar_color": "dark-blue",
       "is_admin": false,
       "pin_code": null,
       "favorite_services": [
@@ -71,6 +72,7 @@
       "role": "Admin",
       "location": "Praha",
       "avatar_initials": "S",
+      "avatar_color": "red",
       "is_admin": true,
       "pin_code": "1234",
       "favorite_services": [
@@ -125,6 +127,200 @@
           "category": "account",
           "kind": "script",
           "target": "lsof -i -P -n | head -n 15 || netstat -an | head -n 15",
+          "icon": "settings"
+        }
+      ]
+    },
+    {
+      "id": "prof-linda",
+      "name": "Linda",
+      "workspace_label": "Vykylab",
+      "role": "Uživatel",
+      "location": "Jevíčko",
+      "avatar_initials": "L",
+      "avatar_color": "soft-pink",
+      "is_admin": false,
+      "pin_code": null,
+      "favorite_services": [
+        "svc-portainer"
+      ],
+      "shortcuts": [
+        {
+          "id": "sc-dashboard",
+          "label": "Portainer",
+          "category": "service",
+          "kind": "link",
+          "target": "https://portainer.vykylab.local",
+          "icon": "dashboard"
+        },
+        {
+          "id": "sc-containers",
+          "label": "Docker ps",
+          "category": "service",
+          "kind": "script",
+          "target": "docker ps --format 'table {{.Names}}\\t{{.Status}}' || uname -a",
+          "icon": "table"
+        },
+        {
+          "id": "sc-adguard",
+          "label": "AdGuard DNS",
+          "category": "service",
+          "kind": "link",
+          "target": "https://dns.vykylab.local",
+          "icon": "shield"
+        },
+        {
+          "id": "sc-disk",
+          "label": "Kontrola disků",
+          "category": "service",
+          "kind": "script",
+          "target": "df -h /",
+          "icon": "terminal"
+        },
+        {
+          "id": "sc-uptime",
+          "label": "Uptime & Load",
+          "category": "account",
+          "kind": "script",
+          "target": "uptime",
+          "icon": "user"
+        },
+        {
+          "id": "sc-backup",
+          "label": "Backup Sync",
+          "category": "account",
+          "kind": "script",
+          "target": "echo 'Snapshot ověřen: 3-2-1 OK'",
+          "icon": "settings"
+        }
+      ]
+    },
+    {
+      "id": "prof-peta",
+      "name": "Peťa",
+      "workspace_label": "Vykylab",
+      "role": "Uživatel",
+      "location": "Praha",
+      "avatar_initials": "P",
+      "avatar_color": "cyan",
+      "is_admin": false,
+      "pin_code": null,
+      "favorite_services": [
+        "svc-adguard"
+      ],
+      "shortcuts": [
+        {
+          "id": "sc-dashboard",
+          "label": "Portainer",
+          "category": "service",
+          "kind": "link",
+          "target": "https://portainer.vykylab.local",
+          "icon": "dashboard"
+        },
+        {
+          "id": "sc-containers",
+          "label": "Docker ps",
+          "category": "service",
+          "kind": "script",
+          "target": "docker ps --format 'table {{.Names}}\\t{{.Status}}' || uname -a",
+          "icon": "table"
+        },
+        {
+          "id": "sc-adguard",
+          "label": "AdGuard DNS",
+          "category": "service",
+          "kind": "link",
+          "target": "https://dns.vykylab.local",
+          "icon": "shield"
+        },
+        {
+          "id": "sc-disk",
+          "label": "Kontrola disků",
+          "category": "service",
+          "kind": "script",
+          "target": "df -h /",
+          "icon": "terminal"
+        },
+        {
+          "id": "sc-uptime",
+          "label": "Uptime & Load",
+          "category": "account",
+          "kind": "script",
+          "target": "uptime",
+          "icon": "user"
+        },
+        {
+          "id": "sc-backup",
+          "label": "Backup Sync",
+          "category": "account",
+          "kind": "script",
+          "target": "echo 'Snapshot ověřen: 3-2-1 OK'",
+          "icon": "settings"
+        }
+      ]
+    },
+    {
+      "id": "prof-mamka",
+      "name": "Mamka",
+      "workspace_label": "Vykylab",
+      "role": "Uživatel",
+      "location": "Jevíčko",
+      "avatar_initials": "M",
+      "avatar_color": "owl-brown",
+      "is_admin": false,
+      "pin_code": null,
+      "favorite_services": [
+        "svc-portainer",
+        "svc-adguard",
+        "svc-immich"
+      ],
+      "shortcuts": [
+        {
+          "id": "sc-dashboard",
+          "label": "Portainer",
+          "category": "service",
+          "kind": "link",
+          "target": "https://portainer.vykylab.local",
+          "icon": "dashboard"
+        },
+        {
+          "id": "sc-containers",
+          "label": "Docker ps",
+          "category": "service",
+          "kind": "script",
+          "target": "docker ps --format 'table {{.Names}}\\t{{.Status}}' || uname -a",
+          "icon": "table"
+        },
+        {
+          "id": "sc-adguard",
+          "label": "AdGuard DNS",
+          "category": "service",
+          "kind": "link",
+          "target": "https://dns.vykylab.local",
+          "icon": "shield"
+        },
+        {
+          "id": "sc-disk",
+          "label": "Kontrola disků",
+          "category": "service",
+          "kind": "script",
+          "target": "df -h /",
+          "icon": "terminal"
+        },
+        {
+          "id": "sc-uptime",
+          "label": "Uptime & Load",
+          "category": "account",
+          "kind": "script",
+          "target": "uptime",
+          "icon": "user"
+        },
+        {
+          "id": "sc-backup",
+          "label": "Backup Sync",
+          "category": "account",
+          "kind": "script",
+          "target": "echo 'Snapshot ověřen: 3-2-1 OK'",
           "icon": "settings"
         }
       ]
@@ -226,6 +422,76 @@
     }
   ],
   "events": [
+    {
+      "id": "evt-9c6448c1",
+      "timestamp": "00:29",
+      "level": "info",
+      "source": "Portainer",
+      "message": "Akce 'start' provedena na službě Portainer."
+    },
+    {
+      "id": "evt-c8b24bd9",
+      "timestamp": "00:28",
+      "level": "info",
+      "source": "Portainer",
+      "message": "Akce 'stop' provedena na službě Portainer."
+    },
+    {
+      "id": "evt-00312c53",
+      "timestamp": "00:28",
+      "level": "info",
+      "source": "Portainer",
+      "message": "Akce 'restart' provedena na službě Portainer."
+    },
+    {
+      "id": "evt-e01d49a9",
+      "timestamp": "00:28",
+      "level": "info",
+      "source": "Portainer",
+      "message": "Akce 'restart' provedena na službě Portainer."
+    },
+    {
+      "id": "evt-d5b8c6b5",
+      "timestamp": "00:28",
+      "level": "info",
+      "source": "Portainer",
+      "message": "Akce 'restart' provedena na službě Portainer."
+    },
+    {
+      "id": "evt-4e62d263",
+      "timestamp": "00:28",
+      "level": "info",
+      "source": "Portainer",
+      "message": "Akce 'restart' provedena na službě Portainer."
+    },
+    {
+      "id": "evt-319c08e7",
+      "timestamp": "00:28",
+      "level": "info",
+      "source": "Portainer",
+      "message": "Akce 'restart' provedena na službě Portainer."
+    },
+    {
+      "id": "evt-3730e077",
+      "timestamp": "23:54",
+      "level": "info",
+      "source": "AdGuard Home",
+      "message": "Akce 'start' provedena na službě AdGuard Home."
+    },
+    {
+      "id": "evt-9fc40387",
+      "timestamp": "23:54",
+      "level": "info",
+      "source": "AdGuard Home",
+      "message": "Akce 'stop' provedena na službě AdGuard Home."
+    },
+    {
+      "id": "evt-ce71db51",
+      "timestamp": "23:35",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
     {
       "id": "evt-da455452",
       "timestamp": "17:10",
@@ -435,74 +701,11 @@
       "level": "ok",
       "source": "Kontrola systému",
       "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-365cc8dd",
-      "timestamp": "12:00",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-06d0672c",
-      "timestamp": "12:00",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-cb2c0468",
-      "timestamp": "12:00",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-a31ed99f",
-      "timestamp": "11:37",
-      "level": "ok",
-      "source": "Script: Uptime & Load",
-      "message": "11:37  up 5 days,  2:48, 1 user, load averages: 1.58 2.79 3.20"
-    },
-    {
-      "id": "evt-f080e79e",
-      "timestamp": "11:36",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-4840c496",
-      "timestamp": "11:30",
-      "level": "info",
-      "source": "AdGuard Home",
-      "message": "Akce 'restart' provedena na službě AdGuard Home."
-    },
-    {
-      "id": "evt-848f93e6",
-      "timestamp": "11:30",
-      "level": "ok",
-      "source": "Script: Uptime & Load",
-      "message": "11:30  up 5 days,  2:41, 1 user, load averages: 5.64 5.67 3.98"
-    },
-    {
-      "id": "evt-1",
-      "timestamp": "11:28",
-      "level": "ok",
-      "source": "Vykylab Core",
-      "message": "Všechny služby a tunely běží bez chyb."
-    },
-    {
-      "id": "evt-2",
-      "timestamp": "04:32",
-      "level": "info",
-      "source": "Cloudflare & Tailscale",
-      "message": "Noční kontrola tunelu dokončena (odezva 11 ms)."
     }
   ],
   "uploads": [],
   "ssh": {
-    "active_connection_id": "ssh-local",
+    "active_connection_id": "ssh-105a6034",
     "connections": [
       {
         "id": "ssh-local",
@@ -512,6 +715,15 @@
         "port": 22,
         "mode": "local",
         "identity_file": null
+      },
+      {
+        "id": "ssh-105a6034",
+        "name": "dydyd",
+        "user": "root",
+        "host": "dy",
+        "port": 22,
+        "mode": "ssh",
+        "identity_file": "dy"
       }
     ],
     "shortcuts": [
@@ -539,9 +751,14 @@
         "id": "sh-a2dc23a2",
         "label": "dad",
         "command": "add"
+      },
+      {
+        "id": "sh-97b9ead9",
+        "label": "fs",
+        "command": "fsfsf"
       }
     ]
   },
-  "last_checked": "17:10",
+  "last_checked": "23:35",
   "weather_summary": "7°C bez větru"
 }

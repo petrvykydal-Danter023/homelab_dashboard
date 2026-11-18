@@ -12,8 +12,9 @@ use std::{
     net::SocketAddr,
     path::{Path as StdPath, PathBuf},
     sync::Arc,
+    time::SystemTime,
 };
-use sysinfo::{Disks, Networks, System};
+use sysinfo::{Disks, Networks, ProcessesToUpdate, System};
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
@@ -39,6 +40,10 @@ pub struct UserShortcut {
     pub icon: String,   // "dashboard" | "table" | "terminal" | "shield" | "user" | "settings"
 }
 
+fn default_avatar_color() -> String {
+    "cyan".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserProfile {
     pub id: String,
@@ -47,6 +52,8 @@ pub struct UserProfile {
     pub role: String,
     pub location: String,
     pub avatar_initials: String,
+    #[serde(default = "default_avatar_color")]
+    pub avatar_color: String,
     #[serde(default)]
     pub is_admin: bool,
     #[serde(default)]
@@ -63,6 +70,7 @@ pub struct PublicUserProfile {
     pub role: String,
     pub location: String,
     pub avatar_initials: String,
+    pub avatar_color: String,
     pub is_admin: bool,
     pub has_pin: bool,
     pub favorite_services: Vec<String>,
@@ -78,12 +86,43 @@ impl From<&UserProfile> for PublicUserProfile {
             role: p.role.clone(),
             location: p.location.clone(),
             avatar_initials: p.avatar_initials.clone(),
+            avatar_color: p.avatar_color.clone(),
             is_admin: p.is_admin,
             has_pin: p.pin_code.as_ref().is_some_and(|pin| !pin.is_empty()),
             favorite_services: p.favorite_services.clone(),
             shortcuts: p.shortcuts.clone(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileYamlEntry {
+    pub id: String,
+    pub name: String,
+    pub location: String,
+    #[serde(default = "default_avatar_color")]
+    pub avatar_color: String,
+    #[serde(default = "default_role_label")]
+    pub role: String,
+    #[serde(default = "default_workspace_label")]
+    pub workspace_label: String,
+    #[serde(default)]
+    pub is_admin: bool,
+    #[serde(default)]
+    pub pin_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfilesYamlConfig {
+    pub profiles: Vec<ProfileYamlEntry>,
+}
+
+fn default_role_label() -> String {
+    "Uživatel".to_string()
+}
+
+fn default_workspace_label() -> String {
+    "Vykylab".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -235,6 +274,19 @@ pub struct SystemMonitoring {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ProcessInfo {
+    pub pid: u32,
+    pub name: String,
+    pub cpu_percent: f32,
+    pub memory_mb: f64,
+    pub disk_read_mb: f64,
+    pub disk_write_mb: f64,
+    pub status: String,
+    pub cmd: String,
+    pub run_time_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct DashboardResponse {
     pub date_label: String,
     pub weather_summary: String,
@@ -248,6 +300,7 @@ pub struct DashboardResponse {
     pub uploads: Vec<UploadedFileInfo>,
     pub ssh: SshConfig,
     pub monitoring: SystemMonitoring,
+    pub processes: Vec<ProcessInfo>,
 }
 
 // ============================================================================
@@ -265,6 +318,7 @@ pub struct CreateProfilePayload {
     pub workspace_label: Option<String>,
     pub role: Option<String>,
     pub location: Option<String>,
+    pub avatar_color: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -273,6 +327,7 @@ pub struct UpdateProfilePayload {
     pub workspace_label: String,
     pub role: String,
     pub location: String,
+    pub avatar_color: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -296,6 +351,8 @@ pub struct ServiceActionPayload {
 #[derive(Clone)]
 struct AppState {
     store_path: PathBuf,
+    profiles_yaml_path: PathBuf,
+    profiles_yaml_mtime: Arc<RwLock<Option<SystemTime>>>,
     uploads_dir: PathBuf,
     store: Arc<RwLock<PersistedStore>>,
     sys: Arc<RwLock<System>>,
@@ -306,6 +363,7 @@ impl AppState {
         let data_dir = PathBuf::from("data");
         let uploads_dir = data_dir.join("uploads");
         let store_path = data_dir.join("store.json");
+        let profiles_yaml_path = data_dir.join("profiles.yaml");
 
         let _ = fs::create_dir_all(&uploads_dir);
 
@@ -323,25 +381,184 @@ impl AppState {
             init
         };
 
+        let mut changed = false;
+        for fam in default_family_profiles() {
+            if !store
+                .profiles
+                .iter()
+                .any(|p| p.id == fam.id || p.name.eq_ignore_ascii_case(&fam.name))
+            {
+                store.profiles.push(fam);
+                changed = true;
+            }
+        }
+
         if !store.profiles.iter().any(|p| p.id == "prof-sudo" || p.name == "sudo") {
             store.profiles.push(default_sudo_profile());
+            changed = true;
+        }
+
+        if !profiles_yaml_path.exists() {
+            let _ = save_profiles_yaml(&profiles_yaml_path, &store.profiles);
+        }
+
+        if let Some(yaml_cfg) = load_profiles_yaml(&profiles_yaml_path) {
+            if apply_yaml_profiles(&mut store, &yaml_cfg) {
+                changed = true;
+            }
+        }
+
+        // Ensure only the sudo profile has admin dashboard access.
+        for prof in &mut store.profiles {
+            let should_be_admin = prof.id == "prof-sudo" || prof.name == "sudo";
+            if prof.is_admin != should_be_admin {
+                prof.is_admin = should_be_admin;
+                changed = true;
+            }
+        }
+
+        if changed {
             let _ = save_store_to_disk(&store_path, &store);
         }
+
+        let yaml_mtime = fs::metadata(&profiles_yaml_path)
+            .and_then(|m| m.modified())
+            .ok();
 
         let mut sys = System::new_all();
         sys.refresh_all();
 
         Self {
             store_path,
+            profiles_yaml_path,
+            profiles_yaml_mtime: Arc::new(RwLock::new(yaml_mtime)),
             uploads_dir,
             store: Arc::new(RwLock::new(store)),
             sys: Arc::new(RwLock::new(sys)),
         }
     }
 
+    async fn sync_yaml_if_changed(&self) {
+        let disk_mtime = fs::metadata(&self.profiles_yaml_path)
+            .and_then(|m| m.modified())
+            .ok();
+        let last_mtime = *self.profiles_yaml_mtime.read().await;
+        if disk_mtime.is_none() || disk_mtime == last_mtime {
+            return;
+        }
+
+        if let Some(yaml_cfg) = load_profiles_yaml(&self.profiles_yaml_path) {
+            let mut store = self.store.write().await;
+            if apply_yaml_profiles(&mut store, &yaml_cfg) {
+                let _ = save_store_to_disk(&self.store_path, &store);
+            }
+            drop(store);
+        }
+
+        let mut guard = self.profiles_yaml_mtime.write().await;
+        *guard = disk_mtime;
+    }
+
     async fn persist(&self, store: &PersistedStore) {
         let _ = save_store_to_disk(&self.store_path, store);
+        if save_profiles_yaml(&self.profiles_yaml_path, &store.profiles).is_ok() {
+            let mtime = fs::metadata(&self.profiles_yaml_path)
+                .and_then(|m| m.modified())
+                .ok();
+            let mut guard = self.profiles_yaml_mtime.write().await;
+            *guard = mtime;
+        }
     }
+}
+
+fn load_profiles_yaml(path: &StdPath) -> Option<ProfilesYamlConfig> {
+    let raw = fs::read_to_string(path).ok()?;
+    serde_yaml::from_str::<ProfilesYamlConfig>(&raw).ok()
+}
+
+fn save_profiles_yaml(path: &StdPath, profiles: &[UserProfile]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let entries: Vec<ProfileYamlEntry> = profiles
+        .iter()
+        .map(|p| ProfileYamlEntry {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            location: p.location.clone(),
+            avatar_color: p.avatar_color.clone(),
+            role: p.role.clone(),
+            workspace_label: p.workspace_label.clone(),
+            is_admin: p.is_admin,
+            pin_code: p.pin_code.clone(),
+        })
+        .collect();
+    let header = "# Konfigurace uživatelských profilů Vykylab Dashboardu\n\
+                  # Barvy avatara (avatar_color): owl-brown | soft-pink | dark-blue | cyan (příp. hex např. \"#c084fc\")\n\
+                  # Klasický dashboard mají všichni kromě účtu \"sudo\" (is_admin: true).\n\n";
+    let body = serde_yaml::to_string(&ProfilesYamlConfig { profiles: entries })
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    fs::write(path, format!("{}{}", header, body))
+}
+
+fn initials_from_name(name: &str) -> String {
+    name.trim()
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().to_string())
+        .unwrap_or_else(|| "U".to_string())
+}
+
+fn apply_yaml_profiles(store: &mut PersistedStore, cfg: &ProfilesYamlConfig) -> bool {
+    let mut changed = false;
+    for entry in &cfg.profiles {
+        let should_be_admin = entry.id == "prof-sudo" || entry.name == "sudo";
+        if let Some(existing) = store
+            .profiles
+            .iter_mut()
+            .find(|p| p.id == entry.id || p.name.eq_ignore_ascii_case(&entry.name))
+        {
+            let next_initials = initials_from_name(&entry.name);
+            if existing.name != entry.name
+                || existing.location != entry.location
+                || existing.avatar_color != entry.avatar_color
+                || existing.role != entry.role
+                || existing.workspace_label != entry.workspace_label
+                || existing.avatar_initials != next_initials
+                || existing.is_admin != should_be_admin
+                || existing.pin_code != entry.pin_code
+            {
+                existing.name = entry.name.clone();
+                existing.location = entry.location.clone();
+                existing.avatar_color = entry.avatar_color.clone();
+                existing.role = entry.role.clone();
+                existing.workspace_label = entry.workspace_label.clone();
+                existing.avatar_initials = next_initials;
+                existing.is_admin = should_be_admin;
+                existing.pin_code = entry.pin_code.clone();
+                changed = true;
+            }
+        } else {
+            let mut prof = if should_be_admin {
+                default_sudo_profile()
+            } else {
+                build_family_profile(
+                    &entry.id,
+                    &entry.name,
+                    &entry.role,
+                    &entry.location,
+                    &initials_from_name(&entry.name),
+                    &entry.avatar_color,
+                )
+            };
+            prof.workspace_label = entry.workspace_label.clone();
+            prof.pin_code = entry.pin_code.clone();
+            prof.is_admin = should_be_admin;
+            store.profiles.push(prof);
+            changed = true;
+        }
+    }
+    changed
 }
 
 fn save_store_to_disk(path: &StdPath, store: &PersistedStore) -> std::io::Result<()> {
@@ -360,6 +577,7 @@ fn default_sudo_profile() -> UserProfile {
         role: "Admin".to_string(),
         location: "Praha".to_string(),
         avatar_initials: "S".to_string(),
+        avatar_color: "cyan".to_string(),
         is_admin: true,
         pin_code: Some("1234".to_string()),
         favorite_services: vec![
@@ -420,16 +638,22 @@ fn default_sudo_profile() -> UserProfile {
     }
 }
 
-fn default_store() -> PersistedStore {
-    let now_time = Local::now().format("%H:%M").to_string();
-
-    let tata_profile = UserProfile {
-        id: "prof-tata".to_string(),
-        name: "Táta".to_string(),
+fn build_family_profile(
+    id: &str,
+    name: &str,
+    role: &str,
+    location: &str,
+    initials: &str,
+    avatar_color: &str,
+) -> UserProfile {
+    UserProfile {
+        id: id.to_string(),
+        name: name.to_string(),
         workspace_label: "Vykylab".to_string(),
-        role: "Správce".to_string(),
-        location: "Praha".to_string(),
-        avatar_initials: "T".to_string(),
+        role: role.to_string(),
+        location: location.to_string(),
+        avatar_initials: initials.to_string(),
+        avatar_color: avatar_color.to_string(),
         is_admin: false,
         pin_code: None,
         favorite_services: vec![
@@ -451,7 +675,8 @@ fn default_store() -> PersistedStore {
                 label: "Docker ps".to_string(),
                 category: "service".to_string(),
                 kind: ShortcutKind::Script,
-                target: "docker ps --format 'table {{.Names}}\\t{{.Status}}' || uname -a".to_string(),
+                target: "docker ps --format 'table {{.Names}}\\t{{.Status}}' || uname -a"
+                    .to_string(),
                 icon: "table".to_string(),
             },
             UserShortcut {
@@ -487,7 +712,23 @@ fn default_store() -> PersistedStore {
                 icon: "settings".to_string(),
             },
         ],
-    };
+    }
+}
+
+fn default_family_profiles() -> Vec<UserProfile> {
+    vec![
+        build_family_profile("prof-linda", "Linda", "Uživatel", "Jevíčko", "L", "soft-pink"),
+        build_family_profile("prof-peta", "Peťa", "Uživatel", "Praha", "P", "cyan"),
+        build_family_profile("prof-mamka", "Mamka", "Uživatel", "Jevíčko", "M", "owl-brown"),
+        build_family_profile("prof-tata", "Táta", "Správce", "Jevíčko", "T", "dark-blue"),
+    ]
+}
+
+fn default_store() -> PersistedStore {
+    let now_time = Local::now().format("%H:%M").to_string();
+    let mut profiles = default_family_profiles();
+    let default_active_id = profiles[0].id.clone();
+    profiles.push(default_sudo_profile());
 
     let services = vec![
         HomelabService {
@@ -603,8 +844,8 @@ fn default_store() -> PersistedStore {
     ];
 
     PersistedStore {
-        active_profile_id: tata_profile.id.clone(),
-        profiles: vec![tata_profile, default_sudo_profile()],
+        active_profile_id: default_active_id,
+        profiles,
         services,
         events,
         uploads: vec![],
@@ -631,6 +872,7 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
     let mut sys = state.sys.write().await;
     sys.refresh_cpu_usage();
     sys.refresh_memory();
+    sys.refresh_processes(ProcessesToUpdate::All, true);
 
     let cpu_percent = sys.global_cpu_usage();
     let cpu_cores = sys.cpus().len();
@@ -666,8 +908,9 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
     let mut best_cpu: Option<(String, f32)> = None;
     let mut best_ram: Option<(String, u64)> = None;
     let mut best_io: Option<(String, u64)> = None;
+    let mut processes: Vec<ProcessInfo> = Vec::with_capacity(sys.processes().len());
 
-    for proc_item in sys.processes().values() {
+    for (pid, proc_item) in sys.processes() {
         let name = proc_item.name().to_string_lossy().to_string();
         let cpu_u = proc_item.cpu_usage();
         if best_cpu.as_ref().is_none_or(|(_, best)| cpu_u > *best) {
@@ -680,11 +923,42 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
         let usage = proc_item.disk_usage();
         let io_sum = usage.read_bytes.saturating_add(usage.written_bytes);
         if best_io.as_ref().is_none_or(|(_, best)| io_sum > *best) {
-            best_io = Some((name, io_sum));
+            best_io = Some((name.clone(), io_sum));
         }
         total_read_bytes = total_read_bytes.saturating_add(usage.read_bytes);
         total_write_bytes = total_write_bytes.saturating_add(usage.written_bytes);
+
+        let cmd_str = proc_item
+            .cmd()
+            .iter()
+            .map(|s| s.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let cmd = if cmd_str.trim().is_empty() {
+            name.clone()
+        } else {
+            cmd_str
+        };
+
+        processes.push(ProcessInfo {
+            pid: pid.as_u32(),
+            name,
+            cpu_percent: (cpu_u * 10.0).round() / 10.0,
+            memory_mb: ((mem_b as f64 / 1_048_576.0) * 10.0).round() / 10.0,
+            disk_read_mb: ((usage.read_bytes as f64 / 1_048_576.0) * 10.0).round() / 10.0,
+            disk_write_mb: ((usage.written_bytes as f64 / 1_048_576.0) * 10.0).round() / 10.0,
+            status: format!("{:?}", proc_item.status()),
+            cmd,
+            run_time_secs: proc_item.run_time(),
+        });
     }
+    processes.sort_by(|a, b| {
+        b.cpu_percent
+            .total_cmp(&a.cpu_percent)
+            .then_with(|| b.memory_mb.total_cmp(&a.memory_mb))
+            .then_with(|| a.pid.cmp(&b.pid))
+    });
+    processes.truncate(150);
     let top_cpu_proc = best_cpu
         .map(|(n, c)| format!("{} ({:.1}%)", n, c))
         .unwrap_or_else(|| "—".to_string());
@@ -801,6 +1075,7 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
             tunnel_tx: format!("{:.0}%", cpu_percent.clamp(1.0, 100.0)),
             connected_to,
         },
+        processes,
     }
 }
 
@@ -813,6 +1088,7 @@ async fn health() -> impl IntoResponse {
 }
 
 async fn get_dashboard(State(state): State<AppState>) -> impl IntoResponse {
+    state.sync_yaml_if_changed().await;
     Json(build_dashboard(&state).await)
 }
 
@@ -850,6 +1126,10 @@ async fn create_profile(
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| "Praha".to_string()),
         avatar_initials: initials,
+        avatar_color: payload
+            .avatar_color
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(default_avatar_color),
         is_admin: false,
         pin_code: None,
         favorite_services: vec!["svc-portainer".to_string(), "svc-adguard".to_string()],
@@ -912,6 +1192,9 @@ async fn update_profile(
     }
     if !payload.location.trim().is_empty() {
         prof.location = payload.location.trim().to_string();
+    }
+    if let Some(color) = payload.avatar_color.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        prof.avatar_color = color.to_string();
     }
 
     state.persist(&store).await;

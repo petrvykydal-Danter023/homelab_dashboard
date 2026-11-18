@@ -1,0 +1,45 @@
+# Konfigurace uživatelských profilů Vykylab Dashboardu
+# Barvy avatara (avatar_color): owl-brown | soft-pink | dark-blue | cyan (příp. hex např. "#c084fc")
+# Klasický dashboard mají všichni kromě účtu "sudo" (is_admin: true).
+
+profiles:
+- id: prof-tata
+  name: Táta
+  location: Jevíčko
+  avatar_color: dark-blue
+  role: Správce
+  workspace_label: Vykylab
+  is_admin: false
+  pin_code: null
+- id: prof-sudo
+  name: sudo
+  location: Praha
+  avatar_color: red
+  role: Admin
+  workspace_label: Vykylab
+  is_admin: true
+  pin_code: '1234'
+- id: prof-linda
+  name: Linda
+  location: Jevíčko
+  avatar_color: soft-pink
+  role: Uživatel
+  workspace_label: Vykylab
+  is_admin: false
+  pin_code: null
+- id: prof-peta
+  name: Peťa
+  location: Praha
+  avatar_color: cyan
+  role: Uživatel
+  workspace_label: Vykylab
+  is_admin: false
+  pin_code: null
+- id: prof-mamka
+  name: Mamka
+  location: Jevíčko
+  avatar_color: owl-brown
+  role: Uživatel
+  workspace_label: Vykylab
+  is_admin: false
+  pin_code: null

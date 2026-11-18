@@ -16,6 +16,7 @@ export interface UserProfile {
   role: string;
   location: string;
   avatar_initials: string;
+  avatar_color: string;
   is_admin: boolean;
   has_pin: boolean;
   favorite_services: string[];
@@ -112,6 +113,18 @@ export interface SshConfig {
   shortcuts: SshShortcut[];
 }
 
+export interface ProcessInfo {
+  pid: number;
+  name: string;
+  cpu_percent: number;
+  memory_mb: number;
+  disk_read_mb: number;
+  disk_write_mb: number;
+  status: string;
+  cmd: string;
+  run_time_secs: number;
+}
+
 export interface DashboardResponse {
   date_label: string;
   weather_summary: string;
@@ -125,4 +138,5 @@ export interface DashboardResponse {
   uploads: UploadedFileInfo[];
   ssh: SshConfig;
   monitoring: SystemMonitoring;
+  processes: ProcessInfo[];
 }
