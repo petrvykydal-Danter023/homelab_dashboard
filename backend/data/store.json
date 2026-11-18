@@ -10,7 +10,9 @@
       "avatar_initials": "T",
       "is_admin": false,
       "pin_code": null,
-      "favorite_services": [],
+      "favorite_services": [
+        "svc-immich"
+      ],
       "shortcuts": [
         {
           "id": "sc-dashboard",
@@ -134,7 +136,7 @@
       "name": "Portainer",
       "subtitle": "Docker Orchestrator",
       "status": "running",
-      "uptime": "Up (healthy) · 18d",
+      "uptime": "Up (healthy) · právě teď",
       "url": "https://portainer.vykylab.local",
       "icon": "container",
       "preview_rows": [
@@ -225,6 +227,202 @@
   ],
   "events": [
     {
+      "id": "evt-da455452",
+      "timestamp": "17:10",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-ba7cbdfe",
+      "timestamp": "14:59",
+      "level": "info",
+      "source": "Portainer",
+      "message": "Akce 'start' provedena na službě Portainer."
+    },
+    {
+      "id": "evt-b750ed37",
+      "timestamp": "14:45",
+      "level": "info",
+      "source": "Portainer",
+      "message": "Akce 'stop' provedena na službě Portainer."
+    },
+    {
+      "id": "evt-5042b935",
+      "timestamp": "14:45",
+      "level": "info",
+      "source": "Portainer",
+      "message": "Akce 'start' provedena na službě Portainer."
+    },
+    {
+      "id": "evt-04f6bd4f",
+      "timestamp": "14:45",
+      "level": "info",
+      "source": "Portainer",
+      "message": "Akce 'stop' provedena na službě Portainer."
+    },
+    {
+      "id": "evt-d9e2918d",
+      "timestamp": "14:44",
+      "level": "info",
+      "source": "Portainer",
+      "message": "Akce 'start' provedena na službě Portainer."
+    },
+    {
+      "id": "evt-5880b7cf",
+      "timestamp": "14:44",
+      "level": "info",
+      "source": "Portainer",
+      "message": "Akce 'stop' provedena na službě Portainer."
+    },
+    {
+      "id": "evt-d2aa4124",
+      "timestamp": "14:43",
+      "level": "info",
+      "source": "AdGuard Home",
+      "message": "Akce 'restart' provedena na službě AdGuard Home."
+    },
+    {
+      "id": "evt-39d63fc2",
+      "timestamp": "14:43",
+      "level": "info",
+      "source": "AdGuard Home",
+      "message": "Akce 'restart' provedena na službě AdGuard Home."
+    },
+    {
+      "id": "evt-62004884",
+      "timestamp": "14:43",
+      "level": "info",
+      "source": "AdGuard Home",
+      "message": "Akce 'restart' provedena na službě AdGuard Home."
+    },
+    {
+      "id": "evt-59db863f",
+      "timestamp": "14:28",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-d2d1e47e",
+      "timestamp": "14:26",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-f8145f78",
+      "timestamp": "14:26",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-d924bb94",
+      "timestamp": "14:26",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-d8673326",
+      "timestamp": "14:14",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-8dd28aaa",
+      "timestamp": "14:14",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-3f22d97e",
+      "timestamp": "14:14",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-ae78a5e7",
+      "timestamp": "14:14",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-d6dc597e",
+      "timestamp": "14:14",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-e678a9d7",
+      "timestamp": "14:14",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-c95a4cdf",
+      "timestamp": "14:14",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-757c2fb1",
+      "timestamp": "14:14",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-eedd31bd",
+      "timestamp": "14:14",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-16cff7af",
+      "timestamp": "14:14",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-01fc1916",
+      "timestamp": "14:14",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-ff8439c2",
+      "timestamp": "14:14",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-b5c5c1e6",
+      "timestamp": "14:14",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-172ad1d6",
+      "timestamp": "14:14",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
       "id": "evt-da114214",
       "timestamp": "12:00",
       "level": "ok",
@@ -303,6 +501,47 @@
     }
   ],
   "uploads": [],
-  "last_checked": "12:00",
+  "ssh": {
+    "active_connection_id": "ssh-local",
+    "connections": [
+      {
+        "id": "ssh-local",
+        "name": "Lokální Shell",
+        "user": "sudo",
+        "host": "localhost",
+        "port": 22,
+        "mode": "local",
+        "identity_file": null
+      }
+    ],
+    "shortcuts": [
+      {
+        "id": "sh-uptime",
+        "label": "Uptime",
+        "command": "uptime"
+      },
+      {
+        "id": "sh-disk",
+        "label": "Disky",
+        "command": "df -h /"
+      },
+      {
+        "id": "sh-ports",
+        "label": "Otevřené porty",
+        "command": "lsof -i -P -n | head -n 15 || netstat -an | head -n 15"
+      },
+      {
+        "id": "sh-ps",
+        "label": "Top procesy",
+        "command": "ps aux | head -n 12"
+      },
+      {
+        "id": "sh-a2dc23a2",
+        "label": "dad",
+        "command": "add"
+      }
+    ]
+  },
+  "last_checked": "17:10",
   "weather_summary": "7°C bez větru"
 }

@@ -33,6 +33,7 @@ import type {
   UserProfile,
   UserShortcut,
 } from './types';
+import { AdminDashboard } from './AdminDashboard';
 
 function renderShortcutIcon(icon: string, className = 'w-4 h-4') {
   switch (icon) {
@@ -605,6 +606,26 @@ export default function App() {
         </div>
         {pinModal}
       </div>
+    );
+  }
+
+  if (profile.is_admin) {
+    return (
+      <>
+        <AdminDashboard
+          data={data}
+          onRefresh={fetchDashboard}
+          onOpenProfileHub={() => setShowProfileHub(true)}
+          onShowToast={showToast}
+        />
+        {pinModal}
+        {toast && (
+          <div className="fixed bottom-5 right-5 z-50 apple-card px-4 py-2.5 flex items-center gap-2 text-xs text-white shadow-2xl">
+            <Check className={`w-3.5 h-3.5 ${toast.ok ? 'text-emerald-400' : 'text-rose-400'}`} />
+            <span>{toast.text}</span>
+          </div>
+        )}
+      </>
     );
   }
 

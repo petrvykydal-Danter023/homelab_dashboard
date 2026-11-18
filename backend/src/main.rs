@@ -13,7 +13,7 @@ use std::{
     path::{Path as StdPath, PathBuf},
     sync::Arc,
 };
-use sysinfo::{Disks, System};
+use sysinfo::{Disks, Networks, System};
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use uuid::Uuid;
@@ -123,12 +123,76 @@ pub struct UploadedFileInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SshConnection {
+    pub id: String,
+    pub name: String,
+    pub user: String,
+    pub host: String,
+    pub port: u16,
+    pub mode: String, // "local" | "ssh"
+    pub identity_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SshShortcut {
+    pub id: String,
+    pub label: String,
+    pub command: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SshConfig {
+    pub active_connection_id: String,
+    pub connections: Vec<SshConnection>,
+    pub shortcuts: Vec<SshShortcut>,
+}
+
+fn default_ssh_config() -> SshConfig {
+    SshConfig {
+        active_connection_id: "ssh-local".to_string(),
+        connections: vec![SshConnection {
+            id: "ssh-local".to_string(),
+            name: "Lokální Shell".to_string(),
+            user: "sudo".to_string(),
+            host: "localhost".to_string(),
+            port: 22,
+            mode: "local".to_string(),
+            identity_file: None,
+        }],
+        shortcuts: vec![
+            SshShortcut {
+                id: "sh-uptime".to_string(),
+                label: "Uptime".to_string(),
+                command: "uptime".to_string(),
+            },
+            SshShortcut {
+                id: "sh-disk".to_string(),
+                label: "Disky".to_string(),
+                command: "df -h /".to_string(),
+            },
+            SshShortcut {
+                id: "sh-ports".to_string(),
+                label: "Otevřené porty".to_string(),
+                command: "lsof -i -P -n | head -n 15 || netstat -an | head -n 15".to_string(),
+            },
+            SshShortcut {
+                id: "sh-ps".to_string(),
+                label: "Top procesy".to_string(),
+                command: "ps aux | head -n 12".to_string(),
+            },
+        ],
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedStore {
     pub active_profile_id: String,
     pub profiles: Vec<UserProfile>,
     pub services: Vec<HomelabService>,
     pub events: Vec<SystemEvent>,
     pub uploads: Vec<UploadedFileInfo>,
+    #[serde(default = "default_ssh_config")]
+    pub ssh: SshConfig,
     pub last_checked: String,
     pub weather_summary: String,
 }
@@ -136,12 +200,34 @@ pub struct PersistedStore {
 #[derive(Debug, Clone, Serialize)]
 pub struct SystemMonitoring {
     pub host_name: String,
+    pub os_version: String,
+    pub kernel_version: String,
+    pub cpu_arch: String,
+    pub cpu_brand: String,
+    pub cpu_cores: usize,
+    pub cpu_freq_mhz: u64,
     pub cpu_percent: f32,
+    pub load_avg: String,
+    pub top_cpu_proc: String,
     pub ram_used_gb: f64,
     pub ram_total_gb: f64,
     pub ram_percent: f64,
+    pub swap_used_gb: f64,
+    pub swap_total_gb: f64,
+    pub top_ram_proc: String,
     pub disk_free_gb: f64,
     pub disk_total_gb: f64,
+    pub disk_fs: String,
+    pub disk_kind: String,
+    pub net_interface: String,
+    pub net_rx_mb: f64,
+    pub net_tx_mb: f64,
+    pub net_rx_packets: u64,
+    pub net_tx_packets: u64,
+    pub disk_read_mb: f64,
+    pub disk_write_mb: f64,
+    pub top_io_proc: String,
+    pub process_count: usize,
     pub uptime_formatted: String,
     pub tunnel_label: String,
     pub tunnel_tx: String,
@@ -160,6 +246,7 @@ pub struct DashboardResponse {
     pub services: Vec<HomelabService>,
     pub events: Vec<SystemEvent>,
     pub uploads: Vec<UploadedFileInfo>,
+    pub ssh: SshConfig,
     pub monitoring: SystemMonitoring,
 }
 
@@ -521,6 +608,7 @@ fn default_store() -> PersistedStore {
         services,
         events,
         uploads: vec![],
+        ssh: default_ssh_config(),
         last_checked: now_time,
         weather_summary: "7°C bez větru".to_string(),
     }
@@ -545,6 +633,17 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
     sys.refresh_memory();
 
     let cpu_percent = sys.global_cpu_usage();
+    let cpu_cores = sys.cpus().len();
+    let cpu_brand = sys
+        .cpus()
+        .first()
+        .map(|c| c.brand().trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "CPU".to_string());
+    let cpu_freq_mhz = sys.cpus().first().map(|c| c.frequency()).unwrap_or(0);
+    let la = System::load_average();
+    let load_avg = format!("{:.2} / {:.2} / {:.2}", la.one, la.five, la.fifteen);
+
     let ram_total_gb = sys.total_memory() as f64 / 1_073_741_824.0;
     let ram_used_gb = sys.used_memory() as f64 / 1_073_741_824.0;
     let ram_percent = if ram_total_gb > 0.0 {
@@ -552,12 +651,78 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
     } else {
         0.0
     };
+    let swap_total_gb = sys.total_swap() as f64 / 1_073_741_824.0;
+    let swap_used_gb = sys.used_swap() as f64 / 1_073_741_824.0;
+
     let host_name = System::host_name().unwrap_or_else(|| "Vykylab Main-server".to_string());
+    let os_version = System::long_os_version().unwrap_or_else(|| "Linux / macOS".to_string());
+    let kernel_version = System::kernel_version().unwrap_or_else(|| "unknown".to_string());
+    let cpu_arch = System::cpu_arch().unwrap_or_else(|| "unknown".to_string());
     let uptime_formatted = format_uptime(System::uptime());
+    let process_count = sys.processes().len();
+
+    let mut total_read_bytes: u64 = 0;
+    let mut total_write_bytes: u64 = 0;
+    let mut best_cpu: Option<(String, f32)> = None;
+    let mut best_ram: Option<(String, u64)> = None;
+    let mut best_io: Option<(String, u64)> = None;
+
+    for proc_item in sys.processes().values() {
+        let name = proc_item.name().to_string_lossy().to_string();
+        let cpu_u = proc_item.cpu_usage();
+        if best_cpu.as_ref().is_none_or(|(_, best)| cpu_u > *best) {
+            best_cpu = Some((name.clone(), cpu_u));
+        }
+        let mem_b = proc_item.memory();
+        if best_ram.as_ref().is_none_or(|(_, best)| mem_b > *best) {
+            best_ram = Some((name.clone(), mem_b));
+        }
+        let usage = proc_item.disk_usage();
+        let io_sum = usage.read_bytes.saturating_add(usage.written_bytes);
+        if best_io.as_ref().is_none_or(|(_, best)| io_sum > *best) {
+            best_io = Some((name, io_sum));
+        }
+        total_read_bytes = total_read_bytes.saturating_add(usage.read_bytes);
+        total_write_bytes = total_write_bytes.saturating_add(usage.written_bytes);
+    }
+    let top_cpu_proc = best_cpu
+        .map(|(n, c)| format!("{} ({:.1}%)", n, c))
+        .unwrap_or_else(|| "—".to_string());
+    let top_ram_proc = best_ram
+        .map(|(n, b)| format!("{} ({:.0} MB)", n, b as f64 / 1_048_576.0))
+        .unwrap_or_else(|| "—".to_string());
+    let top_io_proc = best_io
+        .map(|(n, b)| format!("{} ({:.1} MB)", n, b as f64 / 1_048_576.0))
+        .unwrap_or_else(|| "—".to_string());
+
+    let disk_read_mb = total_read_bytes as f64 / 1_048_576.0;
+    let disk_write_mb = total_write_bytes as f64 / 1_048_576.0;
     drop(sys);
 
+    let networks = Networks::new_with_refreshed_list();
+    let mut rx_bytes: u64 = 0;
+    let mut tx_bytes: u64 = 0;
+    let mut net_rx_packets: u64 = 0;
+    let mut net_tx_packets: u64 = 0;
+    let mut primary_iface = String::from("eth0");
+    let mut max_iface_bytes: u64 = 0;
+    for (iface, data) in &networks {
+        let r = data.total_received();
+        let t = data.total_transmitted();
+        rx_bytes = rx_bytes.saturating_add(r);
+        tx_bytes = tx_bytes.saturating_add(t);
+        net_rx_packets = net_rx_packets.saturating_add(data.total_packets_received());
+        net_tx_packets = net_tx_packets.saturating_add(data.total_packets_transmitted());
+        if r.saturating_add(t) > max_iface_bytes {
+            max_iface_bytes = r.saturating_add(t);
+            primary_iface = iface.clone();
+        }
+    }
+    let net_rx_mb = rx_bytes as f64 / 1_048_576.0;
+    let net_tx_mb = tx_bytes as f64 / 1_048_576.0;
+
     let disks = Disks::new_with_refreshed_list();
-    let (disk_free_gb, disk_total_gb) = disks
+    let (disk_free_gb, disk_total_gb, disk_fs, disk_kind) = disks
         .iter()
         .find(|d| d.mount_point() == StdPath::new("/"))
         .or_else(|| disks.first())
@@ -565,9 +730,11 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
             (
                 d.available_space() as f64 / 1_073_741_824.0,
                 d.total_space() as f64 / 1_073_741_824.0,
+                d.file_system().to_string_lossy().to_string(),
+                format!("{:?}", d.kind()),
             )
         })
-        .unwrap_or((128.0, 512.0));
+        .unwrap_or((128.0, 512.0, "APFS".to_string(), "SSD".to_string()));
 
     let store = state.store.read().await;
     let active_profile = store
@@ -598,14 +765,37 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
         services: store.services.clone(),
         events: store.events.clone(),
         uploads: store.uploads.clone(),
+        ssh: store.ssh.clone(),
         monitoring: SystemMonitoring {
             host_name: host_name.clone(),
+            os_version,
+            kernel_version,
+            cpu_arch,
+            cpu_brand,
+            cpu_cores,
+            cpu_freq_mhz,
             cpu_percent,
+            load_avg,
+            top_cpu_proc,
             ram_used_gb,
             ram_total_gb,
             ram_percent,
+            swap_used_gb,
+            swap_total_gb,
+            top_ram_proc,
             disk_free_gb,
             disk_total_gb,
+            disk_fs,
+            disk_kind,
+            net_interface: primary_iface,
+            net_rx_mb,
+            net_tx_mb,
+            net_rx_packets,
+            net_tx_packets,
+            disk_read_mb,
+            disk_write_mb,
+            top_io_proc,
+            process_count,
             uptime_formatted,
             tunnel_label: "Tailscale & Cloudflare".to_string(),
             tunnel_tx: format!("{:.0}%", cpu_percent.clamp(1.0, 100.0)),
@@ -953,7 +1143,10 @@ async fn run_system_check(State(state): State<AppState>) -> impl IntoResponse {
     state.persist(&store).await;
     drop(store);
 
-    Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await }))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+    )
 }
 
 async fn upload_file(
@@ -1019,6 +1212,234 @@ async fn upload_file(
     )
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AdminExecPayload {
+    pub command: String,
+    pub connection_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddSshConnectionPayload {
+    pub name: String,
+    pub user: String,
+    pub host: String,
+    pub port: Option<u16>,
+    pub mode: Option<String>,
+    pub identity_file: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddSshShortcutPayload {
+    pub label: String,
+    pub command: String,
+}
+
+async fn add_ssh_connection(
+    State(state): State<AppState>,
+    Json(payload): Json<AddSshConnectionPayload>,
+) -> impl IntoResponse {
+    if payload.name.trim().is_empty() || payload.host.trim().is_empty() || payload.user.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "message": "Vyplň název, uživatele a host." })),
+        );
+    }
+
+    let id = format!("ssh-{}", &Uuid::new_v4().to_string()[..8]);
+    let conn = SshConnection {
+        id: id.clone(),
+        name: payload.name.trim().to_string(),
+        user: payload.user.trim().to_string(),
+        host: payload.host.trim().to_string(),
+        port: payload.port.unwrap_or(22),
+        mode: payload.mode.unwrap_or_else(|| "ssh".to_string()),
+        identity_file: payload.identity_file.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+    };
+
+    let mut store = state.store.write().await;
+    store.ssh.connections.push(conn);
+    store.ssh.active_connection_id = id;
+    state.persist(&store).await;
+    drop(store);
+
+    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })))
+}
+
+async fn delete_ssh_connection(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let mut store = state.store.write().await;
+    if id == "ssh-local" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "message": "Lokální shell nelze smazat." })),
+        );
+    }
+    store.ssh.connections.retain(|c| c.id != id);
+    if store.ssh.active_connection_id == id {
+        store.ssh.active_connection_id = "ssh-local".to_string();
+    }
+    state.persist(&store).await;
+    drop(store);
+
+    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })))
+}
+
+async fn activate_ssh_connection(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let mut store = state.store.write().await;
+    if !store.ssh.connections.iter().any(|c| c.id == id) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "ok": false, "message": "SSH profil nenalezen." })),
+        );
+    }
+    store.ssh.active_connection_id = id;
+    state.persist(&store).await;
+    drop(store);
+
+    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })))
+}
+
+async fn add_ssh_shortcut(
+    State(state): State<AppState>,
+    Json(payload): Json<AddSshShortcutPayload>,
+) -> impl IntoResponse {
+    if payload.label.trim().is_empty() || payload.command.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "message": "Vyplň název i příkaz." })),
+        );
+    }
+    let mut store = state.store.write().await;
+    store.ssh.shortcuts.push(SshShortcut {
+        id: format!("sh-{}", &Uuid::new_v4().to_string()[..8]),
+        label: payload.label.trim().to_string(),
+        command: payload.command.trim().to_string(),
+    });
+    state.persist(&store).await;
+    drop(store);
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+    )
+}
+
+async fn delete_ssh_shortcut(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let mut store = state.store.write().await;
+    store.ssh.shortcuts.retain(|s| s.id != id);
+    state.persist(&store).await;
+    drop(store);
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+    )
+}
+
+async fn admin_exec(
+    State(state): State<AppState>,
+    Json(payload): Json<AdminExecPayload>,
+) -> impl IntoResponse {
+    let store = state.store.read().await;
+    let is_admin = store
+        .profiles
+        .iter()
+        .find(|p| p.id == store.active_profile_id)
+        .is_some_and(|p| p.is_admin);
+    let conn_id = payload
+        .connection_id
+        .as_deref()
+        .unwrap_or(&store.ssh.active_connection_id);
+    let active_conn = store
+        .ssh
+        .connections
+        .iter()
+        .find(|c| c.id == conn_id)
+        .cloned()
+        .unwrap_or_else(|| store.ssh.connections[0].clone());
+    drop(store);
+
+    if !is_admin {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "ok": false, "output": "Vyžadován admin profil sudo." })),
+        );
+    }
+
+    let cmd = payload.command.trim();
+    if cmd.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "output": "Prázdný příkaz." })),
+        );
+    }
+
+    let started = std::time::Instant::now();
+    let output = if active_conn.mode == "ssh" {
+        let mut proc = tokio::process::Command::new("ssh");
+        proc.arg("-o")
+            .arg("BatchMode=yes")
+            .arg("-o")
+            .arg("ConnectTimeout=5")
+            .arg("-p")
+            .arg(active_conn.port.to_string());
+        if let Some(key_path) = active_conn.identity_file.as_ref().filter(|s| !s.is_empty()) {
+            proc.arg("-i").arg(key_path);
+        }
+        proc.arg(format!("{}@{}", active_conn.user, active_conn.host))
+            .arg(cmd)
+            .output()
+            .await
+    } else {
+        tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg(cmd)
+            .output()
+            .await
+    };
+
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let target_label = if active_conn.mode == "ssh" {
+        format!("{}@{}:{}", active_conn.user, active_conn.host, active_conn.port)
+    } else {
+        "local".to_string()
+    };
+
+    let (ok, exit_code, text) = match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let combined = match (stdout.is_empty(), stderr.is_empty()) {
+                (false, true) => stdout,
+                (true, false) => stderr,
+                (false, false) => format!("{}\n{}", stdout, stderr),
+                (true, true) => "Příkaz dokončen bez výstupu.".to_string(),
+            };
+            (out.status.success(), out.status.code().unwrap_or(-1), combined)
+        }
+        Err(e) => (false, -1, format!("Chyba spuštění: {}", e)),
+    };
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "ok": ok,
+            "exit_code": exit_code,
+            "duration_ms": duration_ms,
+            "target": target_label,
+            "output": text
+        })),
+    )
+}
+
 // ============================================================================
 // Main Entry
 // ============================================================================
@@ -1044,6 +1465,12 @@ async fn main() {
         .route("/api/services/:id/action", post(service_action))
         .route("/api/events/check", post(run_system_check))
         .route("/api/upload", post(upload_file))
+        .route("/api/admin/exec", post(admin_exec))
+        .route("/api/admin/ssh/connections", post(add_ssh_connection))
+        .route("/api/admin/ssh/connections/:id", delete(delete_ssh_connection))
+        .route("/api/admin/ssh/connections/:id/activate", post(activate_ssh_connection))
+        .route("/api/admin/ssh/shortcuts", post(add_ssh_shortcut))
+        .route("/api/admin/ssh/shortcuts/:id", delete(delete_ssh_shortcut))
         .layer(cors)
         .with_state(state);
 

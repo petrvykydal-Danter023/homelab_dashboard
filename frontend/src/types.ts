@@ -56,16 +56,60 @@ export interface UploadedFileInfo {
 
 export interface SystemMonitoring {
   host_name: string;
+  os_version: string;
+  kernel_version: string;
+  cpu_arch: string;
+  cpu_brand: string;
+  cpu_cores: number;
+  cpu_freq_mhz: number;
   cpu_percent: number;
+  load_avg: string;
+  top_cpu_proc: string;
   ram_used_gb: number;
   ram_total_gb: number;
   ram_percent: number;
+  swap_used_gb: number;
+  swap_total_gb: number;
+  top_ram_proc: string;
   disk_free_gb: number;
   disk_total_gb: number;
+  disk_fs: string;
+  disk_kind: string;
+  net_interface: string;
+  net_rx_mb: number;
+  net_tx_mb: number;
+  net_rx_packets: number;
+  net_tx_packets: number;
+  disk_read_mb: number;
+  disk_write_mb: number;
+  top_io_proc: string;
+  process_count: number;
   uptime_formatted: string;
   tunnel_label: string;
   tunnel_tx: string;
   connected_to: string;
+}
+
+export interface SshConnection {
+  id: string;
+  name: string;
+  user: string;
+  host: string;
+  port: number;
+  mode: 'local' | 'ssh';
+  identity_file?: string | null;
+}
+
+export interface SshShortcut {
+  id: string;
+  label: string;
+  command: string;
+}
+
+export interface SshConfig {
+  active_connection_id: string;
+  connections: SshConnection[];
+  shortcuts: SshShortcut[];
 }
 
 export interface DashboardResponse {
@@ -79,5 +123,6 @@ export interface DashboardResponse {
   services: HomelabService[];
   events: SystemEvent[];
   uploads: UploadedFileInfo[];
+  ssh: SshConfig;
   monitoring: SystemMonitoring;
 }
