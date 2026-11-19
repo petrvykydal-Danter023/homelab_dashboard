@@ -1,10 +1,18 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Activity,
   ArrowRight,
   Check,
   Container,
   Cpu,
+  Delete,
   ExternalLink,
   FileUp,
   HardDrive,
@@ -29,6 +37,8 @@ import {
 } from 'lucide-react';
 import type {
   DashboardResponse,
+  ServiceSearchHit,
+  ServiceSearchResponse,
   ShortcutKind,
   UserProfile,
   UserShortcut,
@@ -39,6 +49,7 @@ import {
   AVATAR_CONFIG,
   AvatarBadge,
   AvatarOrb,
+  getProfileAccentColor,
   getProfileAvatarTheme,
 } from './Avatar';
 
@@ -66,6 +77,14 @@ function renderServiceIcon(icon: string, className = 'w-5 h-5') {
       return <Shield className={className} />;
     case 'image':
       return <ImageIcon className={className} />;
+    case 'lock':
+      return <Lock className={className} />;
+    case 'activity':
+      return <Activity className={className} />;
+    case 'zap':
+      return <Zap className={className} />;
+    case 'layers':
+      return <Layers className={className} />;
     case 'container':
     default:
       return <Container className={className} />;
@@ -103,6 +122,99 @@ function arrangeVFormation(profiles: UserProfile[]): UserProfile[] {
   return result;
 }
 
+function foldCzechAscii(str: string): string {
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function HighlightMatchText({
+  text,
+  query,
+  accentHex,
+  accentRgb,
+  active,
+}: {
+  text: string;
+  query: string;
+  accentHex: string;
+  accentRgb: string;
+  active: boolean;
+}) {
+  if (!active || !query.trim() || !text) {
+    return <>{text}</>;
+  }
+
+  // Fold per original character so indices map 1:1 back to original text
+  const origChars = Array.from(text);
+  const foldedText = origChars
+    .map((ch) => foldCzechAscii(ch)[0] ?? ch.toLowerCase())
+    .join('');
+
+  const tokens = foldCzechAscii(query)
+    .split(/\s+/)
+    .filter((t) => t.length > 0);
+
+  if (tokens.length === 0) {
+    return <>{text}</>;
+  }
+
+  const intervals: [number, number][] = [];
+
+  for (const tok of tokens) {
+    let idx = 0;
+    while (idx < foldedText.length) {
+      const pos = foldedText.indexOf(tok, idx);
+      if (pos === -1) break;
+      intervals.push([pos, pos + tok.length]);
+      idx = pos + tok.length;
+    }
+  }
+
+  if (intervals.length === 0) {
+    return <>{text}</>;
+  }
+
+  intervals.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const merged: [number, number][] = [];
+  for (const [start, end] of intervals) {
+    const last = merged[merged.length - 1];
+    if (!last || start > last[1]) {
+      merged.push([start, end]);
+    } else {
+      last[1] = Math.max(last[1], end);
+    }
+  }
+
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  merged.forEach(([start, end], i) => {
+    if (start > cursor) {
+      parts.push(origChars.slice(cursor, start).join(''));
+    }
+    parts.push(
+      <mark
+        key={`m-${i}-${start}`}
+        style={{
+          color: accentHex,
+          backgroundColor: 'transparent',
+          textShadow: `0 0 10px rgba(${accentRgb}, 0.75)`,
+        }}
+        className="font-semibold"
+      >
+        {origChars.slice(start, end).join('')}
+      </mark>
+    );
+    cursor = end;
+  });
+  if (cursor < origChars.length) {
+    parts.push(origChars.slice(cursor).join(''));
+  }
+
+  return <>{parts}</>;
+}
+
 export default function App() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -121,6 +233,87 @@ export default function App() {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState<string | null>(null);
   const [pinReturnToDash, setPinReturnToDash] = useState(false);
+  const [pressedKey, setPressedKey] = useState<string | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const pressedKeyTimerRef = useRef<number | null>(null);
+
+  const playMechanicalClick = useCallback((variant: 'digit' | 'alt' = 'digit') => {
+    try {
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        navigator.vibrate(variant === 'digit' ? 10 : 14);
+      }
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new AudioCtx();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === 'suspended') {
+        void ctx.resume();
+      }
+
+      const now = ctx.currentTime;
+      const jitter = 0.94 + Math.random() * 0.12;
+
+      // 1) Crisp tactile switch click (short bandpass-filtered noise transient)
+      const noiseDur = 0.016;
+      const sampleCount = Math.floor(ctx.sampleRate * noiseDur);
+      const buffer = ctx.createBuffer(1, sampleCount, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < sampleCount; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (sampleCount * 0.28));
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime((variant === 'digit' ? 3200 : 2100) * jitter, now);
+      filter.Q.setValueAtTime(1.6, now);
+
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(variant === 'digit' ? 0.24 : 0.19, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + noiseDur);
+
+      noise.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+      noise.start(now);
+
+      // 2) Deep PBT keycap bottom-out "thock"
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      const startFreq = (variant === 'digit' ? 245 : 175) * jitter;
+      const endFreq = (variant === 'digit' ? 88 : 65) * jitter;
+      osc.frequency.setValueAtTime(startFreq, now);
+      osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.036);
+
+      const thockGain = ctx.createGain();
+      thockGain.gain.setValueAtTime(0.18, now);
+      thockGain.gain.exponentialRampToValueAtTime(0.001, now + 0.042);
+
+      osc.connect(thockGain);
+      thockGain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.045);
+    } catch {
+      // Ignore audio errors on restricted devices
+    }
+  }, []);
+
+  const triggerKeyFeedback = useCallback(
+    (keyId: string, variant: 'digit' | 'alt' = 'digit') => {
+      playMechanicalClick(variant);
+      setPressedKey(keyId);
+      if (pressedKeyTimerRef.current) window.clearTimeout(pressedKeyTimerRef.current);
+      pressedKeyTimerRef.current = window.setTimeout(() => {
+        setPressedKey(null);
+      }, 95);
+    },
+    [playMechanicalClick]
+  );
 
   // Modals
   const [profileModalOpen, setProfileModalOpen] = useState(false);
@@ -313,6 +506,8 @@ export default function App() {
       }
       if (json.dashboard) setData(json.dashboard);
       window.localStorage.setItem('vykylab_profile_selected', id);
+      setSearchQuery('');
+      setServiceSearch(null);
       if (enterDashboard) {
         setShowProfileHub(false);
       }
@@ -334,9 +529,8 @@ export default function App() {
     void handleActivateProfile(target.id, undefined, enterDashboard);
   };
 
-  const handlePinSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!pinTargetProfile || !pinInput.trim()) return;
+  const submitPin = useCallback(async () => {
+    if (!pinTargetProfile || !pinInput.trim() || busyId === `act-${pinTargetProfile.id}`) return;
     const ok = await handleActivateProfile(pinTargetProfile.id, pinInput.trim(), pinReturnToDash);
     if (ok) {
       setPinTargetProfile(null);
@@ -346,7 +540,40 @@ export default function App() {
       setPinError('Nesprávný PIN kód.');
       setPinInput('');
     }
+  }, [pinTargetProfile, pinInput, busyId, pinReturnToDash]);
+
+  const handlePinSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await submitPin();
   };
+
+  useEffect(() => {
+    if (!pinTargetProfile) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault();
+        triggerKeyFeedback(e.key, 'digit');
+        setPinInput((prev) => (prev.length < 8 ? prev + e.key : prev));
+        setPinError(null);
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        triggerKeyFeedback('backspace', 'alt');
+        setPinInput((prev) => prev.slice(0, -1));
+        setPinError(null);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setPinTargetProfile(null);
+        setPinInput('');
+        setPinError(null);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        playMechanicalClick('alt');
+        void submitPin();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [pinTargetProfile, submitPin, triggerKeyFeedback, playMechanicalClick]);
 
   const handleAddShortcut = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -408,27 +635,166 @@ export default function App() {
     }
   };
 
-  const filteredServices = useMemo(() => {
-    if (!data) return [];
-    const q = searchQuery.trim().toLowerCase();
-    const list = data.services.filter(
-      (s) =>
-        !q ||
-        s.name.toLowerCase().includes(q) ||
-        s.subtitle.toLowerCase().includes(q) ||
-        s.preview_rows.some((r) => r.name.toLowerCase().includes(q))
-    );
-    const favs = new Set(data.active_profile.favorite_services);
-    return [...list].sort((a, b) => Number(favs.has(b.id)) - Number(favs.has(a.id)));
-  }, [data, searchQuery]);
+  const [serviceSearch, setServiceSearch] = useState<ServiceSearchResponse | null>(null);
+  const [noMatchCount, setNoMatchCount] = useState(0);
+  const servicesContainerRef = useRef<HTMLDivElement | null>(null);
+  const serviceCardRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
+  const prevCardTopsRef = useRef<Record<string, number>>({});
+  const flipCleanupTimersRef = useRef<Record<string, number>>({});
+  const noMatchDebounceRef = useRef<number | null>(null);
+  const lastNoMatchTriggerRef = useRef(0);
 
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
+      if (noMatchDebounceRef.current) {
+        window.clearTimeout(noMatchDebounceRef.current);
+        noMatchDebounceRef.current = null;
+      }
+      setServiceSearch(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    fetch(`/api/services/search?q=${encodeURIComponent(trimmed)}`, {
+      signal: controller.signal,
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: ServiceSearchResponse | null) => {
+        if (!json) return;
+        // Snapshot current card positions right before applying new ranked order for 60fps FLIP
+        const snapshot: Record<string, number> = {};
+        Object.entries(serviceCardRefs.current).forEach(([id, el]) => {
+          if (el) snapshot[id] = el.getBoundingClientRect().top;
+        });
+        prevCardTopsRef.current = snapshot;
+        setServiceSearch(json);
+        if (servicesContainerRef.current) {
+          servicesContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // Shake avatar "no" when a search matches nothing
+        if (noMatchDebounceRef.current) {
+          window.clearTimeout(noMatchDebounceRef.current);
+          noMatchDebounceRef.current = null;
+        }
+        if (json.max_score === 0 && json.query.trim().length > 0) {
+          noMatchDebounceRef.current = window.setTimeout(() => {
+            const now = Date.now();
+            if (now - lastNoMatchTriggerRef.current > 1100) {
+              lastNoMatchTriggerRef.current = now;
+              setNoMatchCount((c) => c + 1);
+            }
+          }, 260);
+        }
+      })
+      .catch(() => {
+        // Ignore aborted requests while typing fast
+      });
+
+    return () => {
+      controller.abort();
+      if (noMatchDebounceRef.current) {
+        window.clearTimeout(noMatchDebounceRef.current);
+        noMatchDebounceRef.current = null;
+      }
+    };
+  }, [searchQuery]);
+
+  const isSearching = searchQuery.trim().length > 0;
+
+  const { orderedServices, hitMap, maxSearchScore } = useMemo(() => {
+    if (!data) {
+      return {
+        orderedServices: [] as DashboardResponse['services'],
+        hitMap: {} as Record<string, ServiceSearchHit>,
+        maxSearchScore: 0,
+      };
+    }
+
+    if (!isSearching) {
+      const favs = new Set(data.active_profile.favorite_services);
+      const byFav = [...data.services].sort(
+        (a, b) => Number(favs.has(b.id)) - Number(favs.has(a.id))
+      );
+      return {
+        orderedServices: byFav,
+        hitMap: {} as Record<string, ServiceSearchHit>,
+        maxSearchScore: 0,
+      };
+    }
+
+    if (serviceSearch && serviceSearch.hits.length > 0) {
+      const map: Record<string, ServiceSearchHit> = {};
+      const orderIdx: Record<string, number> = {};
+      serviceSearch.hits.forEach((h, i) => {
+        map[h.id] = h;
+        orderIdx[h.id] = i;
+      });
+      const ranked = [...data.services].sort((a, b) => {
+        const ia = orderIdx[a.id] ?? Number.MAX_SAFE_INTEGER;
+        const ib = orderIdx[b.id] ?? Number.MAX_SAFE_INTEGER;
+        return ia - ib;
+      });
+      return {
+        orderedServices: ranked,
+        hitMap: map,
+        maxSearchScore: serviceSearch.max_score || 1,
+      };
+    }
+
+    return {
+      orderedServices: data.services,
+      hitMap: {} as Record<string, ServiceSearchHit>,
+      maxSearchScore: 0,
+    };
+  }, [data, isSearching, serviceSearch]);
+
+  const serviceOrderKey = useMemo(
+    () => orderedServices.map((s) => s.id).join(','),
+    [orderedServices]
+  );
+
+  // 60fps FLIP frame animation when services reorder during search/favorite changes
+  useLayoutEffect(() => {
+    const prevTops = prevCardTopsRef.current;
+    const hasPrev = Object.keys(prevTops).length > 0;
+
+    orderedServices.forEach((svc) => {
+      const el = serviceCardRefs.current[svc.id];
+      if (!el) return;
+      const nextTop = el.getBoundingClientRect().top;
+
+      if (hasPrev && prevTops[svc.id] !== undefined) {
+        const deltaY = prevTops[svc.id] - nextTop;
+        if (Math.abs(deltaY) > 1.5) {
+          if (flipCleanupTimersRef.current[svc.id]) {
+            window.clearTimeout(flipCleanupTimersRef.current[svc.id]);
+          }
+          el.style.transition = 'none';
+          el.style.transform = `translate3d(0, ${deltaY.toFixed(1)}px, 0)`;
+
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+              el.style.transition = 'transform 460ms cubic-bezier(0.22, 1, 0.36, 1)';
+              el.style.transform = 'translate3d(0, 0, 0)';
+              flipCleanupTimersRef.current[svc.id] = window.setTimeout(() => {
+                el.style.transition = '';
+                el.style.transform = '';
+              }, 480);
+            });
+          });
+        }
+      }
+      prevCardTopsRef.current[svc.id] = nextTop;
+    });
+  }, [serviceOrderKey]);
+
+  // Search only affects services — shortcuts stay intact
   const filteredShortcuts = useMemo(() => {
     if (!data) return [];
-    const q = searchQuery.trim().toLowerCase();
-    return data.active_profile.shortcuts.filter(
-      (sc) => !q || sc.label.toLowerCase().includes(q) || sc.target.toLowerCase().includes(q)
-    );
-  }, [data, searchQuery]);
+    return data.active_profile.shortcuts;
+  }, [data]);
 
   if (loading || !data) {
     return (
@@ -443,43 +809,118 @@ export default function App() {
 
   const profile = data.active_profile;
   const profileTheme = getProfileAvatarTheme(profile);
+  const profileAccent = getProfileAccentColor(profile);
   const serviceShortcuts = filteredShortcuts.filter((s) => s.category !== 'account');
   const accountShortcuts = filteredShortcuts.filter((s) => s.category === 'account');
 
+  const pinDotCount = Math.max(4, pinInput.length);
+  const handleKeypadDigit = (digit: string) => {
+    triggerKeyFeedback(digit, 'digit');
+    setPinInput((prev) => (prev.length < 8 ? prev + digit : prev));
+    if (pinError) setPinError(null);
+  };
+
   const pinModal = pinTargetProfile && (
-    <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-[60] bg-[#09090b]/85 backdrop-blur-2xl flex items-center justify-center p-4"
+      style={{
+        backgroundImage:
+          'radial-gradient(ellipse 65% 45% at 50% 0%, rgba(255,255,255,0.06), transparent)',
+      }}
+    >
       <form
         onSubmit={handlePinSubmit}
-        className="apple-card w-full max-w-xs p-6 space-y-4 text-center"
+        className="apple-card relative w-full max-w-[336px] px-6 py-7 space-y-6 text-center"
       >
-        <AvatarBadge profile={pinTargetProfile} className="mx-auto">
-          <Lock className="w-5 h-5" />
-        </AvatarBadge>
-        <div>
-          <h2 className="text-base font-semibold text-white">
-            Odemknout profil {pinTargetProfile.name}
-          </h2>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            Zadej PIN kód pro přístup k admin profilu
-          </p>
+        {/* Clean minimal Apple header */}
+        <h2 className="text-lg font-semibold tracking-tight text-white">
+          Zadej PIN kód
+        </h2>
+
+        {/* Clean floating PIN dots (no heavy inner box) */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-center gap-3.5 py-1">
+            {Array.from({ length: pinDotCount }).map((_, idx) => {
+              const filled = idx < pinInput.length;
+              return (
+                <span
+                  key={idx}
+                  className={`w-2.5 h-2.5 rounded-full transition-all duration-150 ${
+                    pinError
+                      ? 'bg-rose-400/70'
+                      : filled
+                        ? 'bg-white shadow-[0_0_12px_rgba(255,255,255,0.8)] scale-125'
+                        : 'bg-white/15 scale-100'
+                  }`}
+                />
+              );
+            })}
+          </div>
+          {pinError && (
+            <p className="text-xs text-rose-400 font-medium">{pinError}</p>
+          )}
         </div>
 
-        <input
-          type="password"
-          inputMode="numeric"
-          autoFocus
-          value={pinInput}
-          onChange={(e) => {
-            setPinInput(e.target.value);
-            if (pinError) setPinError(null);
-          }}
-          placeholder="••••"
-          className="apple-well w-full px-4 py-2.5 text-center font-mono text-lg tracking-[0.4em] text-white placeholder:text-zinc-600 outline-none focus:border-cyan-400/60"
-        />
+        {/* Clean Apple iOS-style Keypad */}
+        <div className="grid grid-cols-3 gap-3 max-w-[236px] mx-auto select-none">
+          {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
+            <button
+              key={digit}
+              type="button"
+              onClick={() => handleKeypadDigit(digit)}
+              className={`w-16 h-16 mx-auto rounded-full border border-white/[0.08] text-xl font-normal text-white transition-all duration-150 touch-manipulation flex items-center justify-center ${
+                pressedKey === digit
+                  ? 'bg-white/25 scale-95 border-white/25'
+                  : 'bg-white/[0.06] hover:bg-white/[0.12] active:bg-white/25 active:scale-95'
+              }`}
+            >
+              {digit}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              triggerKeyFeedback('clear', 'alt');
+              setPinInput('');
+              setPinError(null);
+            }}
+            disabled={!pinInput.length}
+            aria-label="Vymazat vše"
+            className={`w-16 h-16 mx-auto rounded-full text-xs font-medium text-zinc-400 hover:text-white hover:bg-white/[0.06] active:scale-95 disabled:opacity-25 transition-all duration-150 touch-manipulation flex items-center justify-center ${
+              pressedKey === 'clear' ? 'bg-white/[0.12] scale-95 text-white' : ''
+            }`}
+          >
+            Smazat
+          </button>
+          <button
+            type="button"
+            onClick={() => handleKeypadDigit('0')}
+            className={`w-16 h-16 mx-auto rounded-full border border-white/[0.08] text-xl font-normal text-white transition-all duration-150 touch-manipulation flex items-center justify-center ${
+              pressedKey === '0'
+                ? 'bg-white/25 scale-95 border-white/25'
+                : 'bg-white/[0.06] hover:bg-white/[0.12] active:bg-white/25 active:scale-95'
+            }`}
+          >
+            0
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              triggerKeyFeedback('backspace', 'alt');
+              setPinInput((prev) => prev.slice(0, -1));
+              if (pinError) setPinError(null);
+            }}
+            disabled={!pinInput.length}
+            aria-label="Smazat poslední číslici"
+            className={`w-16 h-16 mx-auto rounded-full text-zinc-400 hover:text-white hover:bg-white/[0.06] active:scale-95 disabled:opacity-25 transition-all duration-150 touch-manipulation flex items-center justify-center ${
+              pressedKey === 'backspace' ? 'bg-white/[0.12] scale-95 text-white' : ''
+            }`}
+          >
+            <Delete className="w-5 h-5" />
+          </button>
+        </div>
 
-        {pinError && <p className="text-xs text-rose-400">{pinError}</p>}
-
-        <div className="flex items-center gap-2 pt-1">
+        <div className="flex items-center gap-2.5 pt-1">
           <button
             type="button"
             onClick={() => {
@@ -487,16 +928,16 @@ export default function App() {
               setPinInput('');
               setPinError(null);
             }}
-            className="flex-1 py-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-xs font-medium text-zinc-300 transition-colors"
+            className="flex-1 py-2.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] active:scale-[0.98] text-xs font-medium text-zinc-300 transition-all touch-manipulation"
           >
             Zrušit
           </button>
           <button
             type="submit"
             disabled={!pinInput.trim() || busyId === `act-${pinTargetProfile.id}`}
-            className="flex-1 py-2.5 rounded-xl bg-white hover:bg-zinc-200 text-zinc-950 text-xs font-semibold disabled:opacity-40 transition-colors"
+            className="flex-1 py-2.5 rounded-full bg-white hover:bg-zinc-200 active:scale-[0.98] text-zinc-950 text-xs font-semibold disabled:opacity-35 transition-all touch-manipulation"
           >
-            Odemknout
+            {busyId === `act-${pinTargetProfile.id}` ? 'Ověřuji…' : 'Odemknout'}
           </button>
         </div>
       </form>
@@ -630,13 +1071,13 @@ export default function App() {
 
   return (
     <div
-      className="min-h-screen bg-[#09090b] text-white flex flex-col"
+      className="min-h-screen lg:h-screen lg:overflow-hidden bg-[#09090b] text-white flex flex-col"
       style={{
         backgroundImage:
           'radial-gradient(ellipse 80% 45% at 50% -10%, rgba(255,255,255,0.065), transparent)',
       }}
     >
-      <div className="max-w-[1400px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 flex-1 flex flex-col gap-5">
+      <div className="max-w-[1400px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 flex-1 min-h-0 flex flex-col gap-5">
         {/* ================================================================ */}
         {/* TOP PROFILE HEADER BAR                                           */}
         {/* ================================================================ */}
@@ -703,11 +1144,11 @@ export default function App() {
         {/* ================================================================ */}
         {/* MAIN 2-COLUMN BENTO GRID (INSPIRED BY REFERENCE LAYOUT)          */}
         {/* ================================================================ */}
-        <main className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch flex-1">
+        <main className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-stretch flex-1 min-h-0">
           {/* -------------------------------------------------------------- */}
           {/* LEFT COLUMN (HERO GREETING + ZKRATKY & MONITORING)             */}
           {/* -------------------------------------------------------------- */}
-          <div className="lg:col-span-7 flex flex-col gap-5">
+          <div className="lg:col-span-7 flex flex-col gap-5 lg:h-full lg:min-h-0">
             {/* 1. Hero Greeting Card */}
             <section className="group/hero apple-card p-6 sm:p-8 relative overflow-hidden min-h-[260px] flex flex-col justify-between">
               {/* Profile Ambient Glow */}
@@ -722,6 +1163,8 @@ export default function App() {
                 <AvatarOrb
                   profile={profile}
                   interactive
+                  facing="left"
+                  noTrigger={noMatchCount}
                   sizeClass={AVATAR_CONFIG.dashboardOrb.sizeClass}
                   eyeShiftClass="pr-5 -mt-6"
                 />
@@ -1009,21 +1452,56 @@ export default function App() {
           </div>
 
           {/* -------------------------------------------------------------- */}
-          {/* RIGHT COLUMN (3 CLICKABLE SERVICE PREVIEW LINK CARDS)          */}
+          {/* RIGHT COLUMN (SCROLLABLE SERVICE PREVIEW LINK CARDS)           */}
           {/* -------------------------------------------------------------- */}
-          <div className="lg:col-span-5 flex flex-col gap-4">
-            {filteredServices.map((svc) => {
+          <div
+            ref={servicesContainerRef}
+            className="lg:col-span-5 flex flex-col gap-4 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pt-1.5 lg:-mt-1.5 lg:pb-2 lg:pr-1"
+          >
+            {orderedServices.map((svc) => {
               const isFav = profile.favorite_services.includes(svc.id);
               const isRunning = svc.status === 'running';
               const cleanUrl = svc.url.replace(/^https?:\/\//, '');
+              const hit = hitMap[svc.id];
+              const matchScore = hit?.score ?? 0;
+              const isMatch = isSearching && matchScore > 0;
+              const isDimmed = isSearching && !!serviceSearch && matchScore === 0;
+              const matchStrength = isMatch
+                ? Math.min(1, Math.max(0.32, matchScore / maxSearchScore))
+                : 0;
+
               return (
                 <a
                   key={svc.id}
+                  ref={(el) => {
+                    serviceCardRefs.current[svc.id] = el;
+                  }}
                   href={svc.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="group apple-card p-5 flex items-stretch justify-between gap-4 relative overflow-hidden flex-1 min-h-[158px] cursor-pointer hover:bg-white/[0.04] hover:-translate-y-0.5 transition-all"
+                  style={
+                    isMatch
+                      ? {
+                          borderColor: `rgba(${profileAccent.rgb}, ${(0.28 + 0.32 * matchStrength).toFixed(2)})`,
+                          boxShadow: `inset 0 1px 0 rgba(${profileAccent.rgb}, ${(0.22 + 0.2 * matchStrength).toFixed(2)}), inset 0 0 ${Math.round(22 + 16 * matchStrength)}px rgba(${profileAccent.rgb}, ${(0.06 + 0.08 * matchStrength).toFixed(2)}), 0 14px 32px -14px rgba(0,0,0,0.75)`,
+                        }
+                      : undefined
+                  }
+                  className={`group apple-card p-5 flex items-stretch justify-between gap-4 relative overflow-hidden shrink-0 min-h-[164px] cursor-pointer hover:bg-white/[0.04] hover:-translate-y-0.5 transition-all duration-300 ${
+                    isDimmed ? 'opacity-40 hover:opacity-75' : 'opacity-100'
+                  }`}
                 >
+                  {/* Soft internal ambient glow matching profile avatar color (never clipped by scrollbox) */}
+                  {isMatch && (
+                    <div
+                      aria-hidden="true"
+                      style={{
+                        background: `radial-gradient(65% 110% at 8% 20%, rgba(${profileAccent.rgb}, ${(0.07 + 0.07 * matchStrength).toFixed(2)}), transparent 72%)`,
+                      }}
+                      className="pointer-events-none absolute inset-0"
+                    />
+                  )}
+
                   {/* Left: Icon, Name, Status & Favorite Heart */}
                   <div className="flex flex-col justify-between gap-3 min-w-[140px] z-10">
                     <div className="flex items-start gap-3">
@@ -1033,7 +1511,13 @@ export default function App() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
                           <h3 className="text-base font-semibold tracking-tight text-white truncate">
-                            {svc.name}
+                            <HighlightMatchText
+                              text={svc.name}
+                              query={searchQuery}
+                              accentHex={profileAccent.hex}
+                              accentRgb={profileAccent.rgb}
+                              active={isMatch}
+                            />
                           </h3>
                           <ExternalLink className="w-3 h-3 text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                         </div>
@@ -1043,7 +1527,13 @@ export default function App() {
                               }`}
                           />
                           <span className={isRunning ? 'text-emerald-300' : 'text-rose-300'}>
-                            {svc.uptime}
+                            <HighlightMatchText
+                              text={svc.uptime}
+                              query={searchQuery}
+                              accentHex={profileAccent.hex}
+                              accentRgb={profileAccent.rgb}
+                              active={isMatch}
+                            />
                           </span>
                         </p>
                       </div>
@@ -1067,7 +1557,13 @@ export default function App() {
                         <Heart className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
                       </button>
                       <span className="text-[10px] font-mono text-zinc-500 group-hover:text-zinc-300 transition-colors truncate">
-                        {cleanUrl}
+                        <HighlightMatchText
+                          text={cleanUrl}
+                          query={searchQuery}
+                          accentHex={profileAccent.hex}
+                          accentRgb={profileAccent.rgb}
+                          active={isMatch}
+                        />
                       </span>
                     </div>
                   </div>
@@ -1082,7 +1578,13 @@ export default function App() {
                         <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
                       </div>
                       <span className="text-[9px] font-mono text-zinc-500 truncate">
-                        {svc.subtitle}
+                        <HighlightMatchText
+                          text={svc.subtitle}
+                          query={searchQuery}
+                          accentHex={profileAccent.hex}
+                          accentRgb={profileAccent.rgb}
+                          active={isMatch}
+                        />
                       </span>
                     </div>
 
@@ -1098,10 +1600,24 @@ export default function App() {
                               className={`w-1.5 h-1.5 rounded-full shrink-0 ${isRunning ? 'bg-emerald-400' : 'bg-zinc-600'
                                 }`}
                             />
-                            <span className="text-zinc-200 font-mono truncate">{row.name}</span>
+                            <span className="text-zinc-200 font-mono truncate">
+                              <HighlightMatchText
+                                text={row.name}
+                                query={searchQuery}
+                                accentHex={profileAccent.hex}
+                                accentRgb={profileAccent.rgb}
+                                active={isMatch}
+                              />
+                            </span>
                           </div>
                           <span className="text-zinc-500 font-mono text-[9px] shrink-0">
-                            {row.meta}
+                            <HighlightMatchText
+                              text={row.meta}
+                              query={searchQuery}
+                              accentHex={profileAccent.hex}
+                              accentRgb={profileAccent.rgb}
+                              active={isMatch}
+                            />
                           </span>
                         </div>
                       ))}

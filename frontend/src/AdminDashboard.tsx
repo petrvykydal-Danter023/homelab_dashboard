@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Activity,
   ArrowDownUp,
@@ -95,51 +95,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newScLabel, setNewScLabel] = useState('');
   const [newScCmd, setNewScCmd] = useState('');
   const [cmdHistoryIdx, setCmdHistoryIdx] = useState<number>(-1);
-
-  const avatarRef = useRef<HTMLDivElement | null>(null);
-  const eyesRef = useRef<HTMLDivElement | null>(null);
-  const mouseTargetRef = useRef({ x: 0, y: 0 });
-
-  // Smooth 60fps lerp eye tracking toward mouse
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!avatarRef.current) return;
-      const rect = avatarRef.current.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      const dx = e.clientX - cx;
-      const dy = e.clientY - cy;
-      const dist = Math.hypot(dx, dy) || 1;
-      const maxDist = 260;
-      const factor = Math.min(1, dist / maxDist);
-      mouseTargetRef.current = {
-        x: (dx / dist) * 10 * factor,
-        y: (dy / dist) * 6 * factor,
-      };
-    };
-
-    window.addEventListener('mousemove', handleMouseMove, { passive: true });
-
-    let rafId = 0;
-    let curX = 0;
-    let curY = 0;
-
-    const tick = () => {
-      curX += (mouseTargetRef.current.x - curX) * 0.12;
-      curY += (mouseTargetRef.current.y - curY) * 0.12;
-
-      if (eyesRef.current) {
-        eyesRef.current.style.transform = `translate3d(${curX.toFixed(2)}px, ${curY.toFixed(2)}px, 0)`;
-      }
-      rafId = window.requestAnimationFrame(tick);
-    };
-
-    rafId = window.requestAnimationFrame(tick);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.cancelAnimationFrame(rafId);
-    };
-  }, []);
   const [sshRunning, setSshRunning] = useState(false);
   const [sshHistory, setSshHistory] = useState<
     { id: number; cmd: string; output: string; ok: boolean; target?: string; duration_ms?: number; exit_code?: number }[]
@@ -702,12 +657,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   style={getProfileAvatarTheme(profile).glowStyle}
                 />
 
-                <div ref={avatarRef} className="relative z-20 translate-x-2 sm:translate-x-3">
+                <div className="relative z-20 translate-x-2 sm:translate-x-3">
                   <AvatarOrb
                     profile={profile}
                     interactive
                     sizeClass={AVATAR_CONFIG.dashboardOrb.sizeClass}
-                    eyesRef={eyesRef}
                   />
                 </div>
               </div>
@@ -882,12 +836,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     style={getProfileAvatarTheme(profile).glowStyle}
                   />
 
-                  <div ref={avatarRef} className="relative z-20 translate-x-2 sm:translate-x-3">
+                  <div className="relative z-20 translate-x-2 sm:translate-x-3">
                     <AvatarOrb
                       profile={profile}
                       interactive
                       sizeClass={AVATAR_CONFIG.dashboardOrb.sizeClass}
-                      eyesRef={eyesRef}
                     />
                   </div>
                 </div>
@@ -952,7 +905,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </section>
 
               {/* RIGHT COLUMN (8 COLS): SCROLLABLE KPI STRIP + CONTAINER STACK CARDS */}
-              <div className="lg:col-span-8 lg:h-full lg:overflow-y-auto lg:pr-1 flex flex-col gap-4 min-h-0">
+              <div className="lg:col-span-8 lg:h-full lg:overflow-y-auto lg:pt-1 lg:-mt-1 lg:pb-2 lg:pr-1 flex flex-col gap-4 min-h-0">
                 {/* Summary KPI Strip */}
                 <div className="grid grid-cols-3 gap-4 shrink-0">
                   <div className="apple-card px-5 py-3.5 flex items-center justify-between">
@@ -1219,12 +1172,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     style={getProfileAvatarTheme(profile).glowStyle}
                   />
 
-                  <div ref={avatarRef} className="relative z-20 translate-x-2 sm:translate-x-3">
+                  <div className="relative z-20 translate-x-2 sm:translate-x-3">
                     <AvatarOrb
                       profile={profile}
                       interactive
                       sizeClass={AVATAR_CONFIG.dashboardOrb.sizeClass}
-                      eyesRef={eyesRef}
                     />
                   </div>
                 </div>
@@ -1498,12 +1450,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     style={getProfileAvatarTheme(profile).glowStyle}
                   />
 
-                  <div ref={avatarRef} className="relative z-20 translate-x-2 sm:translate-x-3">
+                  <div className="relative z-20 translate-x-2 sm:translate-x-3">
                     <AvatarOrb
                       profile={profile}
                       interactive
                       sizeClass={AVATAR_CONFIG.dashboardOrb.sizeClass}
-                      eyesRef={eyesRef}
                     />
                   </div>
                 </div>

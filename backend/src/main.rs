@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Multipart, Path, State},
+    extract::{Multipart, Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post, put},
@@ -398,6 +398,13 @@ impl AppState {
             changed = true;
         }
 
+        for svc in default_extra_services() {
+            if !store.services.iter().any(|s| s.id == svc.id) {
+                store.services.push(svc);
+                changed = true;
+            }
+        }
+
         if !profiles_yaml_path.exists() {
             let _ = save_profiles_yaml(&profiles_yaml_path, &store.profiles);
         }
@@ -569,6 +576,136 @@ fn save_store_to_disk(path: &StdPath, store: &PersistedStore) -> std::io::Result
     fs::write(path, json)
 }
 
+fn default_extra_services() -> Vec<HomelabService> {
+    vec![
+        HomelabService {
+            id: "svc-traefik".to_string(),
+            name: "Traefik Proxy".to_string(),
+            subtitle: "Reverse Proxy & TLS".to_string(),
+            status: "running".to_string(),
+            uptime: "Up (healthy) · 18d".to_string(),
+            url: "https://traefik.vykylab.local".to_string(),
+            icon: "layers".to_string(),
+            preview_rows: vec![
+                ServicePreviewRow {
+                    name: "Routery".to_string(),
+                    status: "active".to_string(),
+                    meta: "14 aktivních".to_string(),
+                },
+                ServicePreviewRow {
+                    name: "TLS Certifikáty".to_string(),
+                    status: "active".to_string(),
+                    meta: "Let's Encrypt OK".to_string(),
+                },
+                ServicePreviewRow {
+                    name: "Entrypointy".to_string(),
+                    status: "active".to_string(),
+                    meta: ":80 / :443".to_string(),
+                },
+            ],
+        },
+        HomelabService {
+            id: "svc-vaultwarden".to_string(),
+            name: "Vaultwarden".to_string(),
+            subtitle: "Správce hesel".to_string(),
+            status: "running".to_string(),
+            uptime: "Up (healthy) · 18d".to_string(),
+            url: "https://vault.vykylab.local".to_string(),
+            icon: "lock".to_string(),
+            preview_rows: vec![
+                ServicePreviewRow {
+                    name: "Trezor".to_string(),
+                    status: "active".to_string(),
+                    meta: "Šifrováno".to_string(),
+                },
+                ServicePreviewRow {
+                    name: "Záloha DB".to_string(),
+                    status: "active".to_string(),
+                    meta: "Dnes 02:30".to_string(),
+                },
+                ServicePreviewRow {
+                    name: "WebSocket".to_string(),
+                    status: "running".to_string(),
+                    meta: "Synchronizováno".to_string(),
+                },
+            ],
+        },
+        HomelabService {
+            id: "svc-jellyfin".to_string(),
+            name: "Jellyfin".to_string(),
+            subtitle: "Rodinné kino & média".to_string(),
+            status: "running".to_string(),
+            uptime: "Up (healthy) · 9d".to_string(),
+            url: "https://media.vykylab.local".to_string(),
+            icon: "zap".to_string(),
+            preview_rows: vec![
+                ServicePreviewRow {
+                    name: "Transkódování".to_string(),
+                    status: "active".to_string(),
+                    meta: "HW VA-API".to_string(),
+                },
+                ServicePreviewRow {
+                    name: "Filmy & Seriály".to_string(),
+                    status: "active".to_string(),
+                    meta: "1.4 TB".to_string(),
+                },
+                ServicePreviewRow {
+                    name: "Přehrávání".to_string(),
+                    status: "active".to_string(),
+                    meta: "0 aktivních".to_string(),
+                },
+            ],
+        },
+        HomelabService {
+            id: "svc-homeassistant".to_string(),
+            name: "Home Assistant".to_string(),
+            subtitle: "Chytrá domácnost".to_string(),
+            status: "running".to_string(),
+            uptime: "Up (healthy) · 14d".to_string(),
+            url: "https://ha.vykylab.local".to_string(),
+            icon: "zap".to_string(),
+            preview_rows: vec![
+                ServicePreviewRow {
+                    name: "Zigbee2MQTT".to_string(),
+                    status: "running".to_string(),
+                    meta: "28 zařízení".to_string(),
+                },
+                ServicePreviewRow {
+                    name: "Automatizace".to_string(),
+                    status: "active".to_string(),
+                    meta: "19 aktivních".to_string(),
+                },
+                ServicePreviewRow {
+                    name: "Teplota doma".to_string(),
+                    status: "active".to_string(),
+                    meta: "21.8 °C".to_string(),
+                },
+            ],
+        },
+        HomelabService {
+            id: "svc-grafana".to_string(),
+            name: "Grafana".to_string(),
+            subtitle: "Metriky & Telemetrie".to_string(),
+            status: "stopped".to_string(),
+            uptime: "Exited (0) · 2d".to_string(),
+            url: "https://grafana.vykylab.local".to_string(),
+            icon: "activity".to_string(),
+            preview_rows: vec![
+                ServicePreviewRow {
+                    name: "Prometheus".to_string(),
+                    status: "stopped".to_string(),
+                    meta: "Pozastaveno".to_string(),
+                },
+                ServicePreviewRow {
+                    name: "Dashboardy".to_string(),
+                    status: "active".to_string(),
+                    meta: "6 šablon".to_string(),
+                },
+            ],
+        },
+    ]
+}
+
 fn default_sudo_profile() -> UserProfile {
     UserProfile {
         id: "prof-sudo".to_string(),
@@ -730,7 +867,7 @@ fn default_store() -> PersistedStore {
     let default_active_id = profiles[0].id.clone();
     profiles.push(default_sudo_profile());
 
-    let services = vec![
+    let mut services = vec![
         HomelabService {
             id: "svc-portainer".to_string(),
             name: "Portainer".to_string(),
@@ -825,6 +962,7 @@ fn default_store() -> PersistedStore {
             ],
         },
     ];
+    services.extend(default_extra_services());
 
     let events = vec![
         SystemEvent {
@@ -1085,6 +1223,293 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
 
 async fn health() -> impl IntoResponse {
     Json(serde_json::json!({ "ok": true, "service": "vykylab-backend" }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ServiceSearchQuery {
+    pub q: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ServiceSearchHit {
+    pub id: String,
+    pub score: u32,
+    pub matched_terms: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ServiceSearchResponse {
+    pub query: String,
+    pub max_score: u32,
+    pub hits: Vec<ServiceSearchHit>,
+}
+
+fn fold_ascii_char(c: char) -> char {
+    match c {
+        'á' | 'à' | 'â' | 'ä' | 'ã' | 'å' | 'Á' | 'À' | 'Â' | 'Ä' | 'Ã' | 'Å' => 'a',
+        'č' | 'ć' | 'ç' | 'Č' | 'Ć' | 'Ç' => 'c',
+        'ď' | 'đ' | 'Ď' | 'Đ' => 'd',
+        'é' | 'ě' | 'è' | 'ê' | 'ë' | 'É' | 'Ě' | 'È' | 'Ê' | 'Ë' => 'e',
+        'í' | 'ì' | 'î' | 'ï' | 'Í' | 'Ì' | 'Î' | 'Ï' => 'i',
+        'ľ' | 'ĺ' | 'ł' | 'Ľ' | 'Ĺ' | 'Ł' => 'l',
+        'ň' | 'ń' | 'ñ' | 'Ň' | 'Ń' | 'Ñ' => 'n',
+        'ó' | 'ò' | 'ô' | 'ö' | 'õ' | 'Ó' | 'Ò' | 'Ô' | 'Ö' | 'Õ' => 'o',
+        'ř' | 'ŕ' | 'Ř' | 'Ŕ' => 'r',
+        'š' | 'ś' | 'Š' | 'Ś' => 's',
+        'ť' | 'Ť' => 't',
+        'ú' | 'ů' | 'ù' | 'û' | 'ü' | 'Ú' | 'Ů' | 'Ù' | 'Û' | 'Ü' => 'u',
+        'ý' | 'ÿ' | 'Ý' | 'Ÿ' => 'y',
+        'ž' | 'ź' | 'ż' | 'Ž' | 'Ź' | 'Ż' => 'z',
+        other => other.to_ascii_lowercase(),
+    }
+}
+
+fn fold_czech_ascii(input: &str) -> String {
+    input.chars().map(fold_ascii_char).collect()
+}
+
+fn bounded_levenshtein(a: &[char], b: &[char]) -> usize {
+    let n = a.len();
+    let m = b.len();
+    if n == 0 {
+        return m;
+    }
+    if m == 0 {
+        return n;
+    }
+    let mut prev: Vec<usize> = (0..=m).collect();
+    let mut curr = vec![0usize; m + 1];
+    for i in 1..=n {
+        curr[0] = i;
+        for j in 1..=m {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[m]
+}
+
+fn subsequence_bonus(token: &[char], hay: &[char]) -> Option<u32> {
+    if token.is_empty() || hay.is_empty() || token.len() > hay.len() {
+        return None;
+    }
+    let mut ti = 0usize;
+    let mut first_idx = None;
+    let mut last_idx = 0usize;
+    let mut consecutive = 0u32;
+    let mut prev_match_idx: Option<usize> = None;
+
+    for (hi, &ch) in hay.iter().enumerate() {
+        if ch == token[ti] {
+            if first_idx.is_none() {
+                first_idx = Some(hi);
+            }
+            if let Some(prev) = prev_match_idx {
+                if hi == prev + 1 {
+                    consecutive += 1;
+                }
+            }
+            prev_match_idx = Some(hi);
+            last_idx = hi;
+            ti += 1;
+            if ti == token.len() {
+                break;
+            }
+        }
+    }
+
+    if ti < token.len() {
+        return None;
+    }
+
+    let span = (last_idx - first_idx.unwrap_or(0) + 1) as f32;
+    let tightness = (token.len() as f32 / span).clamp(0.1, 1.0);
+    Some(18 + (tightness * 16.0) as u32 + consecutive * 3)
+}
+
+fn score_token_in_field(token: &str, field: &str) -> u32 {
+    if token.is_empty() || field.is_empty() {
+        return 0;
+    }
+    if field == token {
+        return 130;
+    }
+    if field.starts_with(token) {
+        return 105;
+    }
+
+    let words: Vec<&str> = field
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+
+    let mut best = 0u32;
+    for word in &words {
+        if *word == token {
+            best = best.max(115);
+        } else if word.starts_with(token) {
+            best = best.max(92);
+        } else if word.contains(token) {
+            best = best.max(72);
+        }
+    }
+    if best > 0 {
+        return best;
+    }
+
+    if field.contains(token) {
+        return 66;
+    }
+
+    let tok_chars: Vec<char> = token.chars().collect();
+    // Bounded typo tolerance on words
+    if tok_chars.len() >= 3 {
+        let max_edits = if tok_chars.len() >= 6 { 2 } else { 1 };
+        for word in &words {
+            let w_chars: Vec<char> = word.chars().collect();
+            if w_chars.len().abs_diff(tok_chars.len()) <= max_edits {
+                let d = bounded_levenshtein(&tok_chars, &w_chars);
+                if d <= max_edits {
+                    best = best.max(if d == 1 { 48 } else { 32 });
+                }
+            }
+        }
+    }
+
+    // Subsequence fuzzy match (skip single-char noise unless word matched)
+    if tok_chars.len() >= 2 {
+        let hay_chars: Vec<char> = field.chars().collect();
+        if let Some(sub) = subsequence_bonus(&tok_chars, &hay_chars) {
+            best = best.max(sub);
+        }
+    }
+
+    best
+}
+
+async fn search_services(
+    State(state): State<AppState>,
+    Query(params): Query<ServiceSearchQuery>,
+) -> Json<ServiceSearchResponse> {
+    let raw_query = params.q.unwrap_or_default();
+    let trimmed = raw_query.trim().to_string();
+    let folded_query = fold_czech_ascii(&trimmed);
+    let tokens: Vec<String> = folded_query
+        .split_whitespace()
+        .filter(|t| !t.is_empty())
+        .map(ToString::to_string)
+        .collect();
+
+    let store = state.store.read().await;
+    if tokens.is_empty() {
+        let hits = store
+            .services
+            .iter()
+            .map(|s| ServiceSearchHit {
+                id: s.id.clone(),
+                score: 0,
+                matched_terms: vec![],
+            })
+            .collect();
+        return Json(ServiceSearchResponse {
+            query: trimmed,
+            max_score: 0,
+            hits,
+        });
+    }
+
+    let mut ranked: Vec<(usize, ServiceSearchHit)> = store
+        .services
+        .iter()
+        .enumerate()
+        .map(|(idx, svc)| {
+            let name_f = fold_czech_ascii(&svc.name);
+            let sub_f = fold_czech_ascii(&svc.subtitle);
+            let url_clean = svc
+                .url
+                .trim_start_matches("https://")
+                .trim_start_matches("http://");
+            let url_f = fold_czech_ascii(url_clean);
+            let uptime_f = fold_czech_ascii(&svc.uptime);
+            let status_aliases = if svc.status == "running" {
+                "running bezi online aktivni up healthy ok"
+            } else {
+                "stopped vypnuto offline exited stop down"
+            };
+            let rows_f: Vec<(String, String)> = svc
+                .preview_rows
+                .iter()
+                .map(|r| (fold_czech_ascii(&r.name), fold_czech_ascii(&r.meta)))
+                .collect();
+
+            let mut total_score = 0u32;
+            let mut matched_tokens = 0usize;
+            let mut matched_terms: Vec<String> = Vec::new();
+
+            if tokens.len() > 1 {
+                let phrase = tokens.join(" ");
+                if name_f.contains(&phrase) {
+                    total_score += 240;
+                } else if sub_f.contains(&phrase) {
+                    total_score += 140;
+                }
+            }
+
+            for tok in &tokens {
+                let s_name = score_token_in_field(tok, &name_f) * 4;
+                let s_sub = score_token_in_field(tok, &sub_f) * 2;
+                let s_url = (score_token_in_field(tok, &url_f) * 18) / 10;
+                let s_status = (score_token_in_field(tok, status_aliases) * 11) / 10
+                    + (score_token_in_field(tok, &uptime_f) * 10) / 10;
+
+                let mut s_rows = 0u32;
+                for (rn, rm) in &rows_f {
+                    let row_hit = score_token_in_field(tok, rn)
+                        .max(score_token_in_field(tok, rm));
+                    s_rows = s_rows.max((row_hit * 15) / 10);
+                }
+
+                let tok_best = s_name.max(s_sub).max(s_url).max(s_status).max(s_rows);
+                if tok_best > 0 {
+                    matched_tokens += 1;
+                    let secondary = (s_name + s_sub + s_url + s_rows + s_status - tok_best) / 5;
+                    total_score += tok_best + secondary;
+                    matched_terms.push(tok.clone());
+                }
+            }
+
+            if matched_tokens > 0 {
+                if matched_tokens == tokens.len() && tokens.len() > 1 {
+                    total_score += 220;
+                } else if tokens.len() > 1 {
+                    total_score = (total_score * matched_tokens as u32) / tokens.len() as u32;
+                }
+            }
+
+            (
+                idx,
+                ServiceSearchHit {
+                    id: svc.id.clone(),
+                    score: total_score,
+                    matched_terms,
+                },
+            )
+        })
+        .collect();
+
+    ranked.sort_by(|(idx_a, hit_a), (idx_b, hit_b)| {
+        hit_b.score.cmp(&hit_a.score).then_with(|| idx_a.cmp(idx_b))
+    });
+
+    let max_score = ranked.first().map(|(_, h)| h.score).unwrap_or(0);
+    let hits = ranked.into_iter().map(|(_, h)| h).collect();
+
+    Json(ServiceSearchResponse {
+        query: trimmed,
+        max_score,
+        hits,
+    })
 }
 
 async fn get_dashboard(State(state): State<AppState>) -> impl IntoResponse {
@@ -1738,6 +2163,7 @@ async fn main() {
     let app = Router::new()
         .route("/api/health", get(health))
         .route("/api/dashboard", get(get_dashboard))
+        .route("/api/services/search", get(search_services))
         .route("/api/profiles", post(create_profile))
         .route("/api/profiles/:id", put(update_profile))
         .route("/api/profiles/:id/activate", post(activate_profile))

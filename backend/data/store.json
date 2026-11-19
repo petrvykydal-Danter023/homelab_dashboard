@@ -12,7 +12,7 @@
       "is_admin": false,
       "pin_code": null,
       "favorite_services": [
-        "svc-immich"
+        "svc-portainer"
       ],
       "shortcuts": [
         {
@@ -142,7 +142,9 @@
       "is_admin": false,
       "pin_code": null,
       "favorite_services": [
-        "svc-portainer"
+        "svc-portainer",
+        "svc-jellyfin",
+        "svc-adguard"
       ],
       "shortcuts": [
         {
@@ -206,7 +208,8 @@
       "is_admin": false,
       "pin_code": null,
       "favorite_services": [
-        "svc-adguard"
+        "svc-adguard",
+        "svc-portainer"
       ],
       "shortcuts": [
         {
@@ -419,9 +422,218 @@
           "meta": "Dnes 03:00"
         }
       ]
+    },
+    {
+      "id": "svc-traefik",
+      "name": "Traefik Proxy",
+      "subtitle": "Reverse Proxy & TLS",
+      "status": "running",
+      "uptime": "Up (healthy) · 18d",
+      "url": "https://traefik.vykylab.local",
+      "icon": "layers",
+      "preview_rows": [
+        {
+          "name": "Routery",
+          "status": "active",
+          "meta": "14 aktivních"
+        },
+        {
+          "name": "TLS Certifikáty",
+          "status": "active",
+          "meta": "Let's Encrypt OK"
+        },
+        {
+          "name": "Entrypointy",
+          "status": "active",
+          "meta": ":80 / :443"
+        }
+      ]
+    },
+    {
+      "id": "svc-vaultwarden",
+      "name": "Vaultwarden",
+      "subtitle": "Správce hesel",
+      "status": "running",
+      "uptime": "Up (healthy) · právě teď",
+      "url": "https://vault.vykylab.local",
+      "icon": "lock",
+      "preview_rows": [
+        {
+          "name": "Trezor",
+          "status": "active",
+          "meta": "Šifrováno"
+        },
+        {
+          "name": "Záloha DB",
+          "status": "active",
+          "meta": "Dnes 02:30"
+        },
+        {
+          "name": "WebSocket",
+          "status": "running",
+          "meta": "Synchronizováno"
+        }
+      ]
+    },
+    {
+      "id": "svc-jellyfin",
+      "name": "Jellyfin",
+      "subtitle": "Rodinné kino & média",
+      "status": "running",
+      "uptime": "Up (healthy) · právě teď",
+      "url": "https://media.vykylab.local",
+      "icon": "zap",
+      "preview_rows": [
+        {
+          "name": "Transkódování",
+          "status": "active",
+          "meta": "HW VA-API"
+        },
+        {
+          "name": "Filmy & Seriály",
+          "status": "active",
+          "meta": "1.4 TB"
+        },
+        {
+          "name": "Přehrávání",
+          "status": "active",
+          "meta": "0 aktivních"
+        }
+      ]
+    },
+    {
+      "id": "svc-homeassistant",
+      "name": "Home Assistant",
+      "subtitle": "Chytrá domácnost",
+      "status": "running",
+      "uptime": "Up (healthy) · právě teď",
+      "url": "https://ha.vykylab.local",
+      "icon": "zap",
+      "preview_rows": [
+        {
+          "name": "Zigbee2MQTT",
+          "status": "running",
+          "meta": "28 zařízení"
+        },
+        {
+          "name": "Automatizace",
+          "status": "active",
+          "meta": "19 aktivních"
+        },
+        {
+          "name": "Teplota doma",
+          "status": "active",
+          "meta": "21.8 °C"
+        }
+      ]
+    },
+    {
+      "id": "svc-grafana",
+      "name": "Grafana",
+      "subtitle": "Metriky & Telemetrie",
+      "status": "running",
+      "uptime": "Up (healthy) · právě teď",
+      "url": "https://grafana.vykylab.local",
+      "icon": "activity",
+      "preview_rows": [
+        {
+          "name": "Prometheus",
+          "status": "stopped",
+          "meta": "Pozastaveno"
+        },
+        {
+          "name": "Dashboardy",
+          "status": "active",
+          "meta": "6 šablon"
+        }
+      ]
     }
   ],
   "events": [
+    {
+      "id": "evt-51bf578a",
+      "timestamp": "10:02",
+      "level": "info",
+      "source": "Grafana",
+      "message": "Akce 'start' provedena na službě Grafana."
+    },
+    {
+      "id": "evt-5271b330",
+      "timestamp": "10:02",
+      "level": "info",
+      "source": "Home Assistant",
+      "message": "Akce 'start' provedena na službě Home Assistant."
+    },
+    {
+      "id": "evt-3ccdbc36",
+      "timestamp": "10:02",
+      "level": "info",
+      "source": "Jellyfin",
+      "message": "Akce 'start' provedena na službě Jellyfin."
+    },
+    {
+      "id": "evt-fa64b960",
+      "timestamp": "10:02",
+      "level": "info",
+      "source": "Vaultwarden",
+      "message": "Akce 'start' provedena na službě Vaultwarden."
+    },
+    {
+      "id": "evt-325e9df1",
+      "timestamp": "10:01",
+      "level": "info",
+      "source": "Grafana",
+      "message": "Akce 'stop' provedena na službě Grafana."
+    },
+    {
+      "id": "evt-ea180e8c",
+      "timestamp": "10:01",
+      "level": "info",
+      "source": "Jellyfin",
+      "message": "Akce 'stop' provedena na službě Jellyfin."
+    },
+    {
+      "id": "evt-ff2e1ab6",
+      "timestamp": "10:01",
+      "level": "info",
+      "source": "Home Assistant",
+      "message": "Akce 'stop' provedena na službě Home Assistant."
+    },
+    {
+      "id": "evt-d92d5224",
+      "timestamp": "10:01",
+      "level": "info",
+      "source": "Vaultwarden",
+      "message": "Akce 'stop' provedena na službě Vaultwarden."
+    },
+    {
+      "id": "evt-e9418c69",
+      "timestamp": "10:01",
+      "level": "info",
+      "source": "Grafana",
+      "message": "Akce 'start' provedena na službě Grafana."
+    },
+    {
+      "id": "evt-c2f7bf16",
+      "timestamp": "09:55",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-79254e10",
+      "timestamp": "09:55",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
+    {
+      "id": "evt-4403edd7",
+      "timestamp": "07:54",
+      "level": "ok",
+      "source": "Kontrola systému",
+      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+    },
     {
       "id": "evt-9c6448c1",
       "timestamp": "00:29",
@@ -617,90 +829,6 @@
       "level": "ok",
       "source": "Kontrola systému",
       "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-d6dc597e",
-      "timestamp": "14:14",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-e678a9d7",
-      "timestamp": "14:14",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-c95a4cdf",
-      "timestamp": "14:14",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-757c2fb1",
-      "timestamp": "14:14",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-eedd31bd",
-      "timestamp": "14:14",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-16cff7af",
-      "timestamp": "14:14",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-01fc1916",
-      "timestamp": "14:14",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-ff8439c2",
-      "timestamp": "14:14",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-b5c5c1e6",
-      "timestamp": "14:14",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-172ad1d6",
-      "timestamp": "14:14",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-da114214",
-      "timestamp": "12:00",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-53883f6f",
-      "timestamp": "12:00",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
     }
   ],
   "uploads": [],
@@ -759,6 +887,6 @@
       }
     ]
   },
-  "last_checked": "23:35",
+  "last_checked": "09:55",
   "weather_summary": "7°C bez větru"
 }

@@ -125,6 +125,18 @@ export interface ProcessInfo {
   run_time_secs: number;
 }
 
+export interface ServiceSearchHit {
+  id: string;
+  score: number;
+  matched_terms: string[];
+}
+
+export interface ServiceSearchResponse {
+  query: string;
+  max_score: number;
+  hits: ServiceSearchHit[];
+}
+
 export interface DashboardResponse {
   date_label: string;
   weather_summary: string;
