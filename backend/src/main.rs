@@ -3033,24 +3033,33 @@ async fn admin_github_update(State(state): State<AppState>, headers: HeaderMap) 
     }
 
     let mut restarting = false;
-    if updated {
-        if let Ok(exe) = std::env::current_exe() {
+    if let Ok(exe) = std::env::current_exe() {
+        let raw_exe = exe.to_string_lossy().to_string();
+        let binary_replaced_on_disk = raw_exe.ends_with(" (deleted)");
+        if updated || binary_replaced_on_disk {
+            let clean_exe =
+                std::path::PathBuf::from(raw_exe.strip_suffix(" (deleted)").unwrap_or(&raw_exe));
             let args: Vec<String> = std::env::args().skip(1).collect();
             restarting = true;
             logs.push(format!(
                 "Nový commit {} -> {}: restartuji backend proces ({})...",
                 old_commit,
                 new_commit,
-                exe.display()
+                clean_exe.display()
             ));
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(450)).await;
                 #[cfg(unix)]
                 {
                     use std::os::unix::process::CommandExt;
-                    let err = std::process::Command::new(&exe).args(&args).exec();
-                    eprintln!("Nepodařilo se restartovat backend pomocí exec: {}", err);
+                    let err = std::process::Command::new(&clean_exe).args(&args).exec();
+                    eprintln!(
+                        "Nepodařilo se restartovat backend pomocí exec ({}): {}",
+                        clean_exe.display(),
+                        err
+                    );
                 }
+                std::process::exit(0);
             });
         }
     }
@@ -3059,6 +3068,11 @@ async fn admin_github_update(State(state): State<AppState>, headers: HeaderMap) 
         format!(
             "Aktualizováno z {} na {} — backend se restartuje.",
             old_commit, new_commit
+        )
+    } else if restarting {
+        format!(
+            "Překompilováno (commit {}) — backend se restartuje.",
+            new_commit
         )
     } else {
         format!("Vše je aktuální (commit {}).", new_commit)
