@@ -14,6 +14,15 @@
       "favorite_services": [
         "svc-portainer"
       ],
+      "visible_services": [
+        "svc-adguard",
+        "svc-immich",
+        "svc-vaultwarden",
+        "svc-jellyfin",
+        "svc-homeassistant",
+        "svc-45e53205",
+        "svc-cad4c4ee"
+      ],
       "shortcuts": [
         {
           "id": "sc-dashboard",
@@ -79,6 +88,16 @@
         "svc-portainer",
         "svc-adguard",
         "svc-immich"
+      ],
+      "visible_services": [
+        "svc-portainer",
+        "svc-adguard",
+        "svc-immich",
+        "svc-traefik",
+        "svc-vaultwarden",
+        "svc-jellyfin",
+        "svc-homeassistant",
+        "svc-grafana"
       ],
       "shortcuts": [
         {
@@ -146,6 +165,13 @@
         "svc-jellyfin",
         "svc-adguard"
       ],
+      "visible_services": [
+        "svc-immich",
+        "svc-vaultwarden",
+        "svc-jellyfin",
+        "svc-homeassistant",
+        "svc-45e53205"
+      ],
       "shortcuts": [
         {
           "id": "sc-dashboard",
@@ -211,6 +237,7 @@
         "svc-adguard",
         "svc-portainer"
       ],
+      "visible_services": null,
       "shortcuts": [
         {
           "id": "sc-dashboard",
@@ -277,6 +304,10 @@
         "svc-adguard",
         "svc-immich"
       ],
+      "visible_services": [
+        "svc-jellyfin",
+        "svc-45e53205"
+      ],
       "shortcuts": [
         {
           "id": "sc-dashboard",
@@ -338,6 +369,9 @@
       "uptime": "Up (healthy) · právě teď",
       "url": "https://portainer.vykylab.local",
       "icon": "container",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": null,
       "preview_rows": [
         {
           "name": "traefik-proxy",
@@ -369,6 +403,9 @@
       "uptime": "Up (healthy) · právě teď",
       "url": "https://dns.vykylab.local",
       "icon": "shield",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": null,
       "preview_rows": [
         {
           "name": "Dotazy (24h)",
@@ -400,6 +437,9 @@
       "uptime": "Up (healthy) · 12d",
       "url": "https://photos.vykylab.local",
       "icon": "image",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": null,
       "preview_rows": [
         {
           "name": "immich-ml",
@@ -431,6 +471,9 @@
       "uptime": "Up (healthy) · 18d",
       "url": "https://traefik.vykylab.local",
       "icon": "layers",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": null,
       "preview_rows": [
         {
           "name": "Routery",
@@ -457,6 +500,9 @@
       "uptime": "Up (healthy) · právě teď",
       "url": "https://vault.vykylab.local",
       "icon": "lock",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": null,
       "preview_rows": [
         {
           "name": "Trezor",
@@ -483,6 +529,9 @@
       "uptime": "Up (healthy) · právě teď",
       "url": "https://media.vykylab.local",
       "icon": "zap",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": null,
       "preview_rows": [
         {
           "name": "Transkódování",
@@ -509,6 +558,9 @@
       "uptime": "Up (healthy) · právě teď",
       "url": "https://ha.vykylab.local",
       "icon": "zap",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": null,
       "preview_rows": [
         {
           "name": "Zigbee2MQTT",
@@ -531,10 +583,13 @@
       "id": "svc-grafana",
       "name": "Grafana",
       "subtitle": "Metriky & Telemetrie",
-      "status": "running",
-      "uptime": "Up (healthy) · právě teď",
+      "status": "stopped",
+      "uptime": "Stopped",
       "url": "https://grafana.vykylab.local",
       "icon": "activity",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": null,
       "preview_rows": [
         {
           "name": "Prometheus",
@@ -547,9 +602,73 @@
           "meta": "6 šablon"
         }
       ]
+    },
+    {
+      "id": "svc-d247ad49",
+      "name": "traefik proxy 2",
+      "subtitle": "Traefik Proxy",
+      "status": "running",
+      "uptime": "Up (healthy) · 18d",
+      "url": "About:Blank",
+      "icon": "container",
+      "image_url": null,
+      "is_docker": false,
+      "container_name": "Traefik Proxy",
+      "preview_rows": [
+        {
+          "name": "Traefik Proxy",
+          "status": "running",
+          "meta": "About:Blank"
+        }
+      ]
+    },
+    {
+      "id": "svc-45e53205",
+      "name": "youtube",
+      "subtitle": "Youtube",
+      "status": "running",
+      "uptime": "Webový odkaz",
+      "url": "https://www.youtube.com/",
+      "icon": "layers",
+      "image_url": null,
+      "is_docker": false,
+      "container_name": null,
+      "preview_rows": [
+        {
+          "name": "Youtube",
+          "status": "running",
+          "meta": "www.youtube.com/"
+        }
+      ]
+    },
+    {
+      "id": "svc-cad4c4ee",
+      "name": "Grafana - pc",
+      "subtitle": "Grafana",
+      "status": "stopped",
+      "uptime": "Stopped",
+      "url": "grafana.com",
+      "icon": "server",
+      "image_url": null,
+      "is_docker": false,
+      "container_name": "Grafana",
+      "preview_rows": [
+        {
+          "name": "Grafana",
+          "status": "stopped",
+          "meta": "grafana.com"
+        }
+      ]
     }
   ],
   "events": [
+    {
+      "id": "evt-9c84e3d5",
+      "timestamp": "11:19",
+      "level": "info",
+      "source": "Grafana",
+      "message": "Akce 'stop' provedena na službě Grafana."
+    },
     {
       "id": "evt-51bf578a",
       "timestamp": "10:02",
@@ -818,13 +937,6 @@
     },
     {
       "id": "evt-3f22d97e",
-      "timestamp": "14:14",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-ae78a5e7",
       "timestamp": "14:14",
       "level": "ok",
       "source": "Kontrola systému",

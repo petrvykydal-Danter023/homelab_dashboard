@@ -20,6 +20,7 @@ export interface UserProfile {
   is_admin: boolean;
   has_pin: boolean;
   favorite_services: string[];
+  visible_services?: string[] | null;
   shortcuts: UserShortcut[];
 }
 
@@ -37,6 +38,9 @@ export interface HomelabService {
   uptime: string;
   url: string;
   icon: string;
+  image_url?: string | null;
+  is_docker: boolean;
+  container_name?: string | null;
   preview_rows: ServicePreviewRow[];
 }
 

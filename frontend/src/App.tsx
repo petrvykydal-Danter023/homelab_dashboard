@@ -12,17 +12,22 @@ import {
   Check,
   Container,
   Cpu,
+  Database,
   Delete,
   ExternalLink,
   FileUp,
+  Film,
+  Globe,
   HardDrive,
   Heart,
+  Home,
   Image as ImageIcon,
   Layers,
   Lock,
   Plus,
   RefreshCw,
   Search,
+  Server,
   Settings,
   Shield,
   Table2,
@@ -85,6 +90,20 @@ function renderServiceIcon(icon: string, className = 'w-5 h-5') {
       return <Zap className={className} />;
     case 'layers':
       return <Layers className={className} />;
+    case 'globe':
+      return <Globe className={className} />;
+    case 'film':
+      return <Film className={className} />;
+    case 'home':
+      return <Home className={className} />;
+    case 'server':
+      return <Server className={className} />;
+    case 'database':
+      return <Database className={className} />;
+    case 'terminal':
+      return <Terminal className={className} />;
+    case 'hard-drive':
+      return <HardDrive className={className} />;
     case 'container':
     default:
       return <Container className={className} />;
@@ -712,9 +731,15 @@ export default function App() {
       };
     }
 
+    const visList = data.active_profile.visible_services;
+    const allowedSet = visList ? new Set(visList) : null;
+    const baseServices = allowedSet
+      ? data.services.filter((s) => allowedSet.has(s.id))
+      : data.services;
+
     if (!isSearching) {
       const favs = new Set(data.active_profile.favorite_services);
-      const byFav = [...data.services].sort(
+      const byFav = [...baseServices].sort(
         (a, b) => Number(favs.has(b.id)) - Number(favs.has(a.id))
       );
       return {
@@ -731,7 +756,7 @@ export default function App() {
         map[h.id] = h;
         orderIdx[h.id] = i;
       });
-      const ranked = [...data.services].sort((a, b) => {
+      const ranked = [...baseServices].sort((a, b) => {
         const ia = orderIdx[a.id] ?? Number.MAX_SAFE_INTEGER;
         const ib = orderIdx[b.id] ?? Number.MAX_SAFE_INTEGER;
         return ia - ib;
@@ -744,7 +769,7 @@ export default function App() {
     }
 
     return {
-      orderedServices: data.services,
+      orderedServices: baseServices,
       hitMap: {} as Record<string, ServiceSearchHit>,
       maxSearchScore: 0,
     };
@@ -1460,6 +1485,7 @@ export default function App() {
           >
             {orderedServices.map((svc) => {
               const isFav = profile.favorite_services.includes(svc.id);
+              const isContainerLinked = svc.is_docker !== false || Boolean(svc.container_name);
               const isRunning = svc.status === 'running';
               const cleanUrl = svc.url.replace(/^https?:\/\//, '');
               const hit = hitMap[svc.id];
@@ -1521,21 +1547,34 @@ export default function App() {
                           </h3>
                           <ExternalLink className="w-3 h-3 text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                         </div>
-                        <p className="text-[11px] font-medium flex items-center gap-1.5 mt-0.5">
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-emerald-400' : 'bg-rose-400'
+                        {isContainerLinked ? (
+                          <p className="text-[11px] font-medium flex items-center gap-1.5 mt-0.5">
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                isRunning ? 'bg-emerald-400' : 'bg-rose-400'
                               }`}
-                          />
-                          <span className={isRunning ? 'text-emerald-300' : 'text-rose-300'}>
+                            />
+                            <span className={isRunning ? 'text-emerald-300' : 'text-rose-300'}>
+                              <HighlightMatchText
+                                text={svc.uptime}
+                                query={searchQuery}
+                                accentHex={profileAccent.hex}
+                                accentRgb={profileAccent.rgb}
+                                active={isMatch}
+                              />
+                            </span>
+                          </p>
+                        ) : (
+                          <p className="text-[11px] font-mono text-zinc-400 group-hover:text-zinc-300 transition-colors truncate mt-0.5">
                             <HighlightMatchText
-                              text={svc.uptime}
+                              text={cleanUrl}
                               query={searchQuery}
                               accentHex={profileAccent.hex}
                               accentRgb={profileAccent.rgb}
                               active={isMatch}
                             />
-                          </span>
-                        </p>
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -1556,78 +1595,64 @@ export default function App() {
                       >
                         <Heart className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
                       </button>
-                      <span className="text-[10px] font-mono text-zinc-500 group-hover:text-zinc-300 transition-colors truncate">
-                        <HighlightMatchText
-                          text={cleanUrl}
-                          query={searchQuery}
-                          accentHex={profileAccent.hex}
-                          accentRgb={profileAccent.rgb}
-                          active={isMatch}
-                        />
-                      </span>
+                      {isContainerLinked && (
+                        <span className="text-[10px] font-mono text-zinc-500 group-hover:text-zinc-300 transition-colors truncate">
+                          <HighlightMatchText
+                            text={cleanUrl}
+                            query={searchQuery}
+                            accentHex={profileAccent.hex}
+                            accentRgb={profileAccent.rgb}
+                            active={isMatch}
+                          />
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  {/* Right: App Preview Thumbnail (Náhledovka) */}
-                  <div className="hidden sm:flex flex-col flex-1 rounded-xl border border-white/[0.08] bg-[#09090c] overflow-hidden min-w-0 relative shadow-inner">
-                    {/* Mini Window Chrome */}
-                    <div className="px-3 py-1.5 border-b border-white/[0.06] bg-white/[0.03] flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
-                        <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
-                        <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
-                      </div>
-                      <span className="text-[9px] font-mono text-zinc-500 truncate">
-                        <HighlightMatchText
-                          text={svc.subtitle}
-                          query={searchQuery}
-                          accentHex={profileAccent.hex}
-                          accentRgb={profileAccent.rgb}
-                          active={isMatch}
+                  {/* Right: Clean Service Image / Minimal Apple Visual Preview */}
+                  <div className="hidden sm:flex flex-col flex-1 rounded-2xl border border-white/[0.08] bg-[#0b0b0f] overflow-hidden min-w-0 relative shadow-inner">
+                    {svc.image_url ? (
+                      <>
+                        <img
+                          src={svc.image_url}
+                          alt={svc.name}
+                          className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-500"
                         />
-                      </span>
-                    </div>
-
-                    {/* Preview Content */}
-                    <div className="p-2.5 space-y-1.5 flex-1">
-                      {svc.preview_rows.slice(0, 4).map((row) => (
                         <div
-                          key={row.name}
-                          className="flex items-center justify-between gap-2 px-2 py-1 rounded-md bg-white/[0.02] border border-white/[0.03] text-[10px]"
-                        >
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${isRunning ? 'bg-emerald-400' : 'bg-zinc-600'
-                                }`}
-                            />
-                            <span className="text-zinc-200 font-mono truncate">
-                              <HighlightMatchText
-                                text={row.name}
-                                query={searchQuery}
-                                accentHex={profileAccent.hex}
-                                accentRgb={profileAccent.rgb}
-                                active={isMatch}
-                              />
-                            </span>
-                          </div>
-                          <span className="text-zinc-500 font-mono text-[9px] shrink-0">
-                            <HighlightMatchText
-                              text={row.meta}
-                              query={searchQuery}
-                              accentHex={profileAccent.hex}
-                              accentRgb={profileAccent.rgb}
-                              active={isMatch}
-                            />
-                          </span>
+                          aria-hidden="true"
+                          className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#09090b]/70 via-transparent to-black/25"
+                        />
+                        <span className="pointer-events-none absolute bottom-2 right-2.5 px-2 py-0.5 rounded-full bg-black/55 backdrop-blur-md border border-white/[0.1] text-[9px] font-mono text-zinc-200 truncate max-w-[85%]">
+                          <HighlightMatchText
+                            text={svc.subtitle}
+                            query={searchQuery}
+                            accentHex={profileAccent.hex}
+                            accentRgb={profileAccent.rgb}
+                            active={isMatch}
+                          />
+                        </span>
+                      </>
+                    ) : (
+                      <div
+                        className="w-full h-full flex flex-col items-center justify-center p-4 text-center relative"
+                        style={{
+                          background: `radial-gradient(circle at 70% 30%, rgba(${profileAccent.rgb}, 0.1), transparent 72%)`,
+                        }}
+                      >
+                        <div className="w-11 h-11 rounded-2xl bg-white/[0.06] border border-white/[0.09] flex items-center justify-center text-zinc-200 mb-2 group-hover:scale-105 transition-transform">
+                          {renderServiceIcon(svc.icon, 'w-5 h-5')}
                         </div>
-                      ))}
-                    </div>
-
-                    {/* Subtle Dark Edge Fade */}
-                    <div
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-[#09090c]/85 to-transparent"
-                    />
+                        <span className="text-[11px] font-medium text-zinc-200 truncate max-w-full">
+                          <HighlightMatchText
+                            text={svc.subtitle}
+                            query={searchQuery}
+                            accentHex={profileAccent.hex}
+                            accentRgb={profileAccent.rgb}
+                            active={isMatch}
+                          />
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </a>
               );

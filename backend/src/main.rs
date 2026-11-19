@@ -1,6 +1,6 @@
 use axum::{
     extract::{Multipart, Path, Query, State},
-    http::StatusCode,
+    http::{header, StatusCode},
     response::IntoResponse,
     routing::{delete, get, post, put},
     Json, Router,
@@ -59,6 +59,8 @@ pub struct UserProfile {
     #[serde(default)]
     pub pin_code: Option<String>,
     pub favorite_services: Vec<String>,
+    #[serde(default)]
+    pub visible_services: Option<Vec<String>>,
     pub shortcuts: Vec<UserShortcut>,
 }
 
@@ -74,6 +76,7 @@ pub struct PublicUserProfile {
     pub is_admin: bool,
     pub has_pin: bool,
     pub favorite_services: Vec<String>,
+    pub visible_services: Option<Vec<String>>,
     pub shortcuts: Vec<UserShortcut>,
 }
 
@@ -90,6 +93,7 @@ impl From<&UserProfile> for PublicUserProfile {
             is_admin: p.is_admin,
             has_pin: p.pin_code.as_ref().is_some_and(|pin| !pin.is_empty()),
             favorite_services: p.favorite_services.clone(),
+            visible_services: p.visible_services.clone(),
             shortcuts: p.shortcuts.clone(),
         }
     }
@@ -132,6 +136,10 @@ pub struct ServicePreviewRow {
     pub meta: String,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HomelabService {
     pub id: String,
@@ -141,6 +149,12 @@ pub struct HomelabService {
     pub uptime: String,
     pub url: String,
     pub icon: String,
+    #[serde(default)]
+    pub image_url: Option<String>,
+    #[serde(default = "default_true")]
+    pub is_docker: bool,
+    #[serde(default)]
+    pub container_name: Option<String>,
     pub preview_rows: Vec<ServicePreviewRow>,
 }
 
@@ -323,11 +337,23 @@ pub struct CreateProfilePayload {
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateProfilePayload {
-    pub name: String,
-    pub workspace_label: String,
-    pub role: String,
-    pub location: String,
+    pub name: Option<String>,
+    pub workspace_label: Option<String>,
+    pub role: Option<String>,
+    pub location: Option<String>,
     pub avatar_color: Option<String>,
+    pub visible_services: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AdminServicePayload {
+    pub name: String,
+    pub url: String,
+    pub subtitle: Option<String>,
+    pub icon: Option<String>,
+    pub image_url: Option<String>,
+    pub is_docker: Option<bool>,
+    pub container_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -354,6 +380,7 @@ struct AppState {
     profiles_yaml_path: PathBuf,
     profiles_yaml_mtime: Arc<RwLock<Option<SystemTime>>>,
     uploads_dir: PathBuf,
+    service_images_dir: PathBuf,
     store: Arc<RwLock<PersistedStore>>,
     sys: Arc<RwLock<System>>,
 }
@@ -362,10 +389,12 @@ impl AppState {
     fn load_or_init() -> Self {
         let data_dir = PathBuf::from("data");
         let uploads_dir = data_dir.join("uploads");
+        let service_images_dir = data_dir.join("service-images");
         let store_path = data_dir.join("store.json");
         let profiles_yaml_path = data_dir.join("profiles.yaml");
 
         let _ = fs::create_dir_all(&uploads_dir);
+        let _ = fs::create_dir_all(&service_images_dir);
 
         let mut store = if store_path.exists() {
             match fs::read_to_string(&store_path)
@@ -440,6 +469,7 @@ impl AppState {
             profiles_yaml_path,
             profiles_yaml_mtime: Arc::new(RwLock::new(yaml_mtime)),
             uploads_dir,
+            service_images_dir,
             store: Arc::new(RwLock::new(store)),
             sys: Arc::new(RwLock::new(sys)),
         }
@@ -586,6 +616,9 @@ fn default_extra_services() -> Vec<HomelabService> {
             uptime: "Up (healthy) · 18d".to_string(),
             url: "https://traefik.vykylab.local".to_string(),
             icon: "layers".to_string(),
+            image_url: None,
+            is_docker: true,
+            container_name: None,
             preview_rows: vec![
                 ServicePreviewRow {
                     name: "Routery".to_string(),
@@ -612,6 +645,9 @@ fn default_extra_services() -> Vec<HomelabService> {
             uptime: "Up (healthy) · 18d".to_string(),
             url: "https://vault.vykylab.local".to_string(),
             icon: "lock".to_string(),
+            image_url: None,
+            is_docker: true,
+            container_name: None,
             preview_rows: vec![
                 ServicePreviewRow {
                     name: "Trezor".to_string(),
@@ -638,6 +674,9 @@ fn default_extra_services() -> Vec<HomelabService> {
             uptime: "Up (healthy) · 9d".to_string(),
             url: "https://media.vykylab.local".to_string(),
             icon: "zap".to_string(),
+            image_url: None,
+            is_docker: true,
+            container_name: None,
             preview_rows: vec![
                 ServicePreviewRow {
                     name: "Transkódování".to_string(),
@@ -664,6 +703,9 @@ fn default_extra_services() -> Vec<HomelabService> {
             uptime: "Up (healthy) · 14d".to_string(),
             url: "https://ha.vykylab.local".to_string(),
             icon: "zap".to_string(),
+            image_url: None,
+            is_docker: true,
+            container_name: None,
             preview_rows: vec![
                 ServicePreviewRow {
                     name: "Zigbee2MQTT".to_string(),
@@ -690,6 +732,9 @@ fn default_extra_services() -> Vec<HomelabService> {
             uptime: "Exited (0) · 2d".to_string(),
             url: "https://grafana.vykylab.local".to_string(),
             icon: "activity".to_string(),
+            image_url: None,
+            is_docker: true,
+            container_name: None,
             preview_rows: vec![
                 ServicePreviewRow {
                     name: "Prometheus".to_string(),
@@ -722,6 +767,7 @@ fn default_sudo_profile() -> UserProfile {
             "svc-adguard".to_string(),
             "svc-immich".to_string(),
         ],
+        visible_services: None,
         shortcuts: vec![
             UserShortcut {
                 id: "sc-sudo-portainer".to_string(),
@@ -798,6 +844,7 @@ fn build_family_profile(
             "svc-adguard".to_string(),
             "svc-immich".to_string(),
         ],
+        visible_services: None,
         shortcuts: vec![
             UserShortcut {
                 id: "sc-dashboard".to_string(),
@@ -876,6 +923,9 @@ fn default_store() -> PersistedStore {
             uptime: "Up (healthy) · 18d".to_string(),
             url: "https://portainer.vykylab.local".to_string(),
             icon: "container".to_string(),
+            image_url: None,
+            is_docker: true,
+            container_name: None,
             preview_rows: vec![
                 ServicePreviewRow {
                     name: "traefik-proxy".to_string(),
@@ -907,6 +957,9 @@ fn default_store() -> PersistedStore {
             uptime: "Up (healthy) · 18d".to_string(),
             url: "https://dns.vykylab.local".to_string(),
             icon: "shield".to_string(),
+            image_url: None,
+            is_docker: true,
+            container_name: None,
             preview_rows: vec![
                 ServicePreviewRow {
                     name: "Dotazy (24h)".to_string(),
@@ -938,6 +991,9 @@ fn default_store() -> PersistedStore {
             uptime: "Up (healthy) · 12d".to_string(),
             url: "https://photos.vykylab.local".to_string(),
             icon: "image".to_string(),
+            image_url: None,
+            is_docker: true,
+            container_name: None,
             preview_rows: vec![
                 ServicePreviewRow {
                     name: "immich-ml".to_string(),
@@ -1156,7 +1212,29 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
         .cloned()
         .unwrap_or_else(|| store.profiles[0].clone());
 
-    let any_stopped = store.services.iter().any(|s| s.status != "running");
+    let synced_services: Vec<HomelabService> = store
+        .services
+        .iter()
+        .map(|s| {
+            if let Some(ref cname) = s.container_name {
+                if let Some(target) = store
+                    .services
+                    .iter()
+                    .find(|d| d.is_docker && (d.id == *cname || d.name.eq_ignore_ascii_case(cname)))
+                {
+                    let mut cloned = s.clone();
+                    cloned.status = target.status.clone();
+                    cloned.uptime = target.uptime.clone();
+                    return cloned;
+                }
+            }
+            s.clone()
+        })
+        .collect();
+
+    let any_stopped = synced_services
+        .iter()
+        .any(|s| s.is_docker && s.status != "running");
     let system_healthy = !any_stopped;
     let system_status_text = if system_healthy {
         "vše je v pořádku".to_string()
@@ -1174,7 +1252,7 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
         system_status_text,
         active_profile: PublicUserProfile::from(&active_profile),
         profiles: store.profiles.iter().map(PublicUserProfile::from).collect(),
-        services: store.services.clone(),
+        services: synced_services,
         events: store.events.clone(),
         uploads: store.uploads.clone(),
         ssh: store.ssh.clone(),
@@ -1402,10 +1480,20 @@ async fn search_services(
         .collect();
 
     let store = state.store.read().await;
+    let visible_filter = store
+        .profiles
+        .iter()
+        .find(|p| p.id == store.active_profile_id)
+        .and_then(|p| p.visible_services.as_ref());
+
+    let visible_services_iter = store.services.iter().filter(|svc| {
+        visible_filter
+            .map(|ids| ids.iter().any(|id| id == &svc.id))
+            .unwrap_or(true)
+    });
+
     if tokens.is_empty() {
-        let hits = store
-            .services
-            .iter()
+        let hits = visible_services_iter
             .map(|s| ServiceSearchHit {
                 id: s.id.clone(),
                 score: 0,
@@ -1419,9 +1507,7 @@ async fn search_services(
         });
     }
 
-    let mut ranked: Vec<(usize, ServiceSearchHit)> = store
-        .services
-        .iter()
+    let mut ranked: Vec<(usize, ServiceSearchHit)> = visible_services_iter
         .enumerate()
         .map(|(idx, svc)| {
             let name_f = fold_czech_ascii(&svc.name);
@@ -1558,6 +1644,7 @@ async fn create_profile(
         is_admin: false,
         pin_code: None,
         favorite_services: vec!["svc-portainer".to_string(), "svc-adguard".to_string()],
+        visible_services: None,
         shortcuts: vec![UserShortcut {
             id: format!("sc-{}", &Uuid::new_v4().to_string()[..6]),
             label: "Uptime".to_string(),
@@ -1600,8 +1687,8 @@ async fn update_profile(
         );
     };
 
-    if !payload.name.trim().is_empty() {
-        prof.name = payload.name.trim().to_string();
+    if let Some(name) = payload.name.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        prof.name = name.to_string();
         prof.avatar_initials = prof
             .name
             .chars()
@@ -1609,23 +1696,287 @@ async fn update_profile(
             .map(|c| c.to_uppercase().to_string())
             .unwrap_or_else(|| "U".to_string());
     }
-    if !payload.workspace_label.trim().is_empty() {
-        prof.workspace_label = payload.workspace_label.trim().to_string();
+    if let Some(ws) = payload.workspace_label.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        prof.workspace_label = ws.to_string();
     }
-    if !payload.role.trim().is_empty() {
-        prof.role = payload.role.trim().to_string();
+    if let Some(role) = payload.role.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        prof.role = role.to_string();
     }
-    if !payload.location.trim().is_empty() {
-        prof.location = payload.location.trim().to_string();
+    if let Some(loc) = payload.location.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        prof.location = loc.to_string();
     }
     if let Some(color) = payload.avatar_color.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
         prof.avatar_color = color.to_string();
+    }
+    if let Some(vis) = payload.visible_services {
+        prof.visible_services = Some(vis);
     }
 
     state.persist(&store).await;
     drop(store);
 
     (StatusCode::OK, Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })))
+}
+
+async fn create_admin_service(
+    State(state): State<AppState>,
+    Json(payload): Json<AdminServicePayload>,
+) -> impl IntoResponse {
+    let name = payload.name.trim();
+    let url = payload.url.trim();
+    if name.is_empty() || url.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "message": "Vyplň název i URL adresu." })),
+        );
+    }
+
+    let id = format!("svc-{}", &Uuid::new_v4().to_string()[..8]);
+    let is_docker = payload.is_docker.unwrap_or(false);
+    let container_name = payload
+        .container_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string);
+    let subtitle = payload
+        .subtitle
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| {
+            if let Some(ref cname) = container_name {
+                cname.clone()
+            } else {
+                "Webový odkaz".to_string()
+            }
+        });
+    let icon = payload
+        .icon
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| if is_docker || container_name.is_some() { "container" } else { "layers" })
+        .to_string();
+    let image_url = payload
+        .image_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string);
+
+    let mut store = state.store.write().await;
+    let linked_container = container_name.as_ref().and_then(|cname| {
+        store.services.iter().find(|s| s.is_docker && (s.id == *cname || s.name.eq_ignore_ascii_case(cname)))
+    });
+    let (status, uptime, resolved_container_name) = if let Some(ref target) = linked_container {
+        (target.status.clone(), target.uptime.clone(), Some(target.name.clone()))
+    } else if is_docker {
+        ("running".to_string(), "Up (healthy) · právě teď".to_string(), container_name.clone())
+    } else {
+        ("running".to_string(), "Webový odkaz".to_string(), container_name.clone())
+    };
+
+    let new_service = HomelabService {
+        id: id.clone(),
+        name: name.to_string(),
+        subtitle: subtitle.clone(),
+        status: status.clone(),
+        uptime,
+        url: url.to_string(),
+        icon,
+        image_url,
+        is_docker,
+        container_name: resolved_container_name,
+        preview_rows: vec![
+            ServicePreviewRow {
+                name: subtitle,
+                status,
+                meta: url.trim_start_matches("https://").trim_start_matches("http://").to_string(),
+            },
+        ],
+    };
+
+    store.services.push(new_service);
+    state.persist(&store).await;
+    drop(store);
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "service_id": id, "dashboard": build_dashboard(&state).await })),
+    )
+}
+
+async fn update_admin_service(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(payload): Json<AdminServicePayload>,
+) -> impl IntoResponse {
+    let mut store = state.store.write().await;
+    let Some(svc) = store.services.iter_mut().find(|s| s.id == id) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "ok": false, "message": "Služba nenalezena." })),
+        );
+    };
+
+    if !payload.name.trim().is_empty() {
+        svc.name = payload.name.trim().to_string();
+    }
+    if !payload.url.trim().is_empty() {
+        svc.url = payload.url.trim().to_string();
+    }
+    if let Some(sub) = payload.subtitle.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        svc.subtitle = sub.to_string();
+    }
+    if let Some(icon) = payload.icon.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        svc.icon = icon.to_string();
+    }
+    if let Some(img) = payload.image_url {
+        let trimmed = img.trim();
+        svc.image_url = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+    }
+    if let Some(is_d) = payload.is_docker {
+        svc.is_docker = is_d;
+    }
+    if let Some(cname) = payload.container_name {
+        let trimmed = cname.trim();
+        svc.container_name = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+    }
+
+    state.persist(&store).await;
+    drop(store);
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+    )
+}
+
+async fn delete_admin_service(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let mut store = state.store.write().await;
+    let before = store.services.len();
+    store.services.retain(|s| s.id != id);
+    if store.services.len() == before {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "ok": false, "message": "Služba nenalezena." })),
+        );
+    }
+    for prof in &mut store.profiles {
+        prof.favorite_services.retain(|sid| sid != &id);
+        if let Some(vis) = &mut prof.visible_services {
+            vis.retain(|sid| sid != &id);
+        }
+    }
+    state.persist(&store).await;
+    drop(store);
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+    )
+}
+
+async fn upload_service_image(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
+    let mut saved_url: Option<String> = None;
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let orig_name = field.file_name().unwrap_or("image.png").to_string();
+        let ext = StdPath::new(&orig_name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .filter(|e| matches!(e.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif" | "svg"))
+            .unwrap_or_else(|| "png".to_string());
+
+        if let Ok(bytes) = field.bytes().await {
+            if !bytes.is_empty() {
+                let filename = format!("{}-{}.{}", id, &Uuid::new_v4().to_string()[..8], ext);
+                let disk_path = state.service_images_dir.join(&filename);
+                if fs::write(&disk_path, &bytes).is_ok() {
+                    saved_url = Some(format!("/api/service-images/{}", filename));
+                    break;
+                }
+            }
+        }
+    }
+
+    let Some(image_url) = saved_url else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "message": "Nebyl nahrán žádný obrázek." })),
+        );
+    };
+
+    let mut store = state.store.write().await;
+    let Some(svc) = store.services.iter_mut().find(|s| s.id == id) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "ok": false, "message": "Služba nenalezena." })),
+        );
+    };
+    svc.image_url = Some(image_url.clone());
+    state.persist(&store).await;
+    drop(store);
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "ok": true,
+            "image_url": image_url,
+            "dashboard": build_dashboard(&state).await
+        })),
+    )
+}
+
+async fn serve_service_image(
+    State(state): State<AppState>,
+    Path(filename): Path<String>,
+) -> impl IntoResponse {
+    let safe_name = StdPath::new(&filename)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if safe_name.is_empty() || safe_name != filename {
+        return (StatusCode::BAD_REQUEST, "Neplatný název souboru").into_response();
+    }
+
+    let path = state.service_images_dir.join(safe_name);
+    let Ok(bytes) = fs::read(&path) else {
+        return (StatusCode::NOT_FOUND, "Obrázek nenalezen").into_response();
+    };
+
+    let mime = match StdPath::new(safe_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        Some("svg") => "image/svg+xml",
+        _ => "image/png",
+    };
+
+    (StatusCode::OK, [(header::CONTENT_TYPE, mime)], bytes).into_response()
 }
 
 async fn activate_profile(
@@ -2172,6 +2523,10 @@ async fn main() {
         .route("/api/profiles/:id/favorites/:service_id", post(toggle_favorite))
         .route("/api/scripts/:shortcut_id/run", post(run_script))
         .route("/api/services/:id/action", post(service_action))
+        .route("/api/services/:id/image", post(upload_service_image))
+        .route("/api/service-images/:filename", get(serve_service_image))
+        .route("/api/admin/services", post(create_admin_service))
+        .route("/api/admin/services/:id", put(update_admin_service).delete(delete_admin_service))
         .route("/api/events/check", post(run_system_check))
         .route("/api/upload", post(upload_file))
         .route("/api/admin/exec", post(admin_exec))
