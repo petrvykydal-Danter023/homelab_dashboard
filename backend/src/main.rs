@@ -1100,6 +1100,22 @@ fn infer_docker_url(name: &str) -> String {
         "https://docker.vykylab.dev".to_string()
     } else if lower.contains("adguard") {
         "https://dns.vykylab.dev".to_string()
+    } else if lower.contains("memos") {
+        "https://memos.vykylab.dev".to_string()
+    } else if lower.contains("uptime") {
+        "https://uptime.vykylab.dev".to_string()
+    } else if lower.contains("searxng") {
+        "https://search.vykylab.dev".to_string()
+    } else if lower.contains("n8n") {
+        "https://n8n.vykylab.dev".to_string()
+    } else if lower == "paperless" {
+        "https://paperless.vykylab.dev".to_string()
+    } else if lower.contains("pdfcraft") {
+        "https://pdfcraft.vykylab.dev".to_string()
+    } else if lower.contains("wordcraft") {
+        "https://wordcraft.vykylab.dev".to_string()
+    } else if lower.contains("gridcraft") {
+        "https://gridcraft.vykylab.dev".to_string()
     } else if lower.contains("dashboard") || lower.contains("caddy") {
         "https://vykylab.dev".to_string()
     } else {
@@ -1209,16 +1225,22 @@ fn infer_docker_icon(name: &str, image: &str) -> String {
         "image".to_string()
     } else if hay.contains("vault") || hay.contains("bitwarden") {
         "lock".to_string()
-    } else if hay.contains("traefik") || hay.contains("nginx") || hay.contains("caddy") {
+    } else if hay.contains("traefik") || hay.contains("nginx") || hay.contains("caddy") || hay.contains("memos") {
         "layers".to_string()
     } else if hay.contains("jellyfin") || hay.contains("plex") {
         "film".to_string()
     } else if hay.contains("homeassistant") || hay.contains("home-assistant") {
         "home".to_string()
-    } else if hay.contains("grafana") || hay.contains("prometheus") {
+    } else if hay.contains("grafana") || hay.contains("prometheus") || hay.contains("uptime") {
         "activity".to_string()
     } else if hay.contains("postgres") || hay.contains("redis") || hay.contains("mariadb") {
         "database".to_string()
+    } else if hay.contains("searxng") {
+        "globe".to_string()
+    } else if hay.contains("n8n") {
+        "zap".to_string()
+    } else if hay.contains("paperless") {
+        "hard-drive".to_string()
     } else {
         "container".to_string()
     }
