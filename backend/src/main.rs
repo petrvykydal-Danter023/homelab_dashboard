@@ -406,6 +406,12 @@ struct WeatherEntry {
     fetched_at: Instant,
 }
 
+#[derive(Debug, Clone)]
+struct ShellSessionState {
+    cwd: String,
+    as_root: bool,
+}
+
 #[derive(Clone)]
 struct AppState {
     store_path: PathBuf,
@@ -416,6 +422,7 @@ struct AppState {
     http: reqwest::Client,
     weather_cache: Arc<RwLock<HashMap<String, WeatherEntry>>>,
     docker_cache: Arc<RwLock<Option<(Instant, Option<Vec<DockerPsRow>>)>>>,
+    shell_sessions: Arc<RwLock<HashMap<String, ShellSessionState>>>,
     store: Arc<RwLock<PersistedStore>>,
     sys: Arc<RwLock<System>>,
 }
@@ -513,6 +520,7 @@ impl AppState {
             http,
             weather_cache: Arc::new(RwLock::new(HashMap::new())),
             docker_cache: Arc::new(RwLock::new(None)),
+            shell_sessions: Arc::new(RwLock::new(HashMap::new())),
             store: Arc::new(RwLock::new(store)),
             sys: Arc::new(RwLock::new(sys)),
         }
@@ -2671,6 +2679,66 @@ async fn delete_ssh_shortcut(
     )
 }
 
+fn shell_single_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+fn default_shell_cwd(conn: &SshConnection) -> String {
+    if conn.mode == "ssh" {
+        "~".to_string()
+    } else {
+        std::env::var("HOME").unwrap_or_else(|_| "/home/petr".to_string())
+    }
+}
+
+async fn exec_target_bash(
+    conn: &SshConnection,
+    script: &str,
+    as_root: bool,
+    timeout_dur: Duration,
+) -> Result<std::process::Output, String> {
+    let mut proc = if conn.mode == "ssh" {
+        let remote_cmd = if as_root {
+            format!("sudo -n bash -c {}", shell_single_quote(script))
+        } else {
+            format!("bash -c {}", shell_single_quote(script))
+        };
+        let mut p = tokio::process::Command::new("ssh");
+        p.stdin(std::process::Stdio::null())
+            .arg("-o")
+            .arg("BatchMode=yes")
+            .arg("-o")
+            .arg("ConnectTimeout=5")
+            .arg("-p")
+            .arg(conn.port.to_string());
+        if let Some(key_path) = conn.identity_file.as_ref().filter(|s| !s.is_empty()) {
+            p.arg("-i").arg(key_path);
+        }
+        p.arg(format!("{}@{}", conn.user, conn.host))
+            .arg(remote_cmd);
+        p
+    } else if as_root {
+        let mut p = tokio::process::Command::new("sudo");
+        p.stdin(std::process::Stdio::null())
+            .args(["-n", "bash", "-c", script]);
+        p
+    } else {
+        let mut p = tokio::process::Command::new("bash");
+        p.stdin(std::process::Stdio::null())
+            .args(["-c", script]);
+        p
+    };
+
+    match tokio::time::timeout(timeout_dur, proc.output()).await {
+        Ok(Ok(out)) => Ok(out),
+        Ok(Err(e)) => Err(format!("Chyba spuštění: {}", e)),
+        Err(_) => Err(format!(
+            "Příkaz vypršel po {} s (timeout — čekal pravděpodobně na interaktivní vstup).",
+            timeout_dur.as_secs()
+        )),
+    }
+}
+
 async fn admin_exec(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2707,40 +2775,219 @@ async fn admin_exec(
         );
     }
 
-    let started = std::time::Instant::now();
-    let output = if active_conn.mode == "ssh" {
-        let mut proc = tokio::process::Command::new("ssh");
-        proc.arg("-o")
-            .arg("BatchMode=yes")
-            .arg("-o")
-            .arg("ConnectTimeout=5")
-            .arg("-p")
-            .arg(active_conn.port.to_string());
-        if let Some(key_path) = active_conn.identity_file.as_ref().filter(|s| !s.is_empty()) {
-            proc.arg("-i").arg(key_path);
-        }
-        proc.arg(format!("{}@{}", active_conn.user, active_conn.host))
-            .arg(cmd)
-            .output()
-            .await
-    } else {
-        tokio::process::Command::new("sh")
-            .arg("-c")
-            .arg(cmd)
-            .output()
-            .await
-    };
+    let session_key = format!(
+        "{}:{}",
+        req_profile.as_deref().unwrap_or("default"),
+        active_conn.id
+    );
+    let default_cwd = default_shell_cwd(&active_conn);
+    let mut session = state
+        .shell_sessions
+        .read()
+        .await
+        .get(&session_key)
+        .cloned()
+        .unwrap_or_else(|| ShellSessionState {
+            cwd: default_cwd.clone(),
+            as_root: false,
+        });
 
-    let duration_ms = started.elapsed().as_millis() as u64;
     let target_label = if active_conn.mode == "ssh" {
-        format!("{}@{}:{}", active_conn.user, active_conn.host, active_conn.port)
+        format!(
+            "{}@{}:{}",
+            if session.as_root {
+                "root"
+            } else {
+                active_conn.user.as_str()
+            },
+            active_conn.host,
+            active_conn.port
+        )
+    } else if session.as_root {
+        "root@local".to_string()
     } else {
         "local".to_string()
     };
 
+    let started = std::time::Instant::now();
+    let normalized_cmd = cmd.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    // Handle root shell switching commands (`sudo su`, `sudo su -`, `sudo -i`, `su`, etc.)
+    if matches!(
+        normalized_cmd.as_str(),
+        "sudo su"
+            | "sudo su -"
+            | "sudo su root"
+            | "sudo su - root"
+            | "sudo -i"
+            | "sudo -s"
+            | "su"
+            | "su -"
+            | "su root"
+            | "su - root"
+    ) {
+        let probe = exec_target_bash(&active_conn, "id", true, Duration::from_secs(10)).await;
+        let duration_ms = started.elapsed().as_millis() as u64;
+        return match probe {
+            Ok(out) if out.status.success() => {
+                let id_out = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                session.as_root = true;
+                if matches!(
+                    normalized_cmd.as_str(),
+                    "sudo su -" | "sudo -i" | "su -" | "sudo su - root" | "su - root"
+                ) {
+                    session.cwd = "/root".to_string();
+                }
+                state
+                    .shell_sessions
+                    .write()
+                    .await
+                    .insert(session_key, session.clone());
+                let new_target = if active_conn.mode == "ssh" {
+                    format!("root@{}:{}", active_conn.host, active_conn.port)
+                } else {
+                    "root@local".to_string()
+                };
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "ok": true,
+                        "exit_code": 0,
+                        "duration_ms": duration_ms,
+                        "target": new_target,
+                        "is_root": true,
+                        "cwd": session.cwd,
+                        "output": format!(
+                            "Přepnuto do root shellu — {}\nAktuální adresář: {}\n(Napiš 'exit' pro návrat na běžného uživatele)",
+                            id_out, session.cwd
+                        ),
+                    })),
+                )
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                let err_msg = if !stderr.is_empty() { stderr } else { stdout };
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "ok": false,
+                        "exit_code": out.status.code().unwrap_or(1),
+                        "duration_ms": duration_ms,
+                        "target": target_label,
+                        "is_root": session.as_root,
+                        "cwd": session.cwd,
+                        "output": if err_msg.is_empty() {
+                            "Nepodařilo se přepnout do root shellu přes sudo -n.".to_string()
+                        } else {
+                            err_msg
+                        },
+                    })),
+                )
+            }
+            Err(e) => (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "ok": false,
+                    "exit_code": -1,
+                    "duration_ms": duration_ms,
+                    "target": target_label,
+                    "is_root": session.as_root,
+                    "cwd": session.cwd,
+                    "output": e,
+                })),
+            ),
+        };
+    }
+
+    // Handle exiting root shell or resetting shell session
+    if matches!(normalized_cmd.as_str(), "exit" | "logout") {
+        let duration_ms = started.elapsed().as_millis() as u64;
+        let msg = if session.as_root {
+            session.as_root = false;
+            if session.cwd == "/root" {
+                session.cwd = default_cwd;
+            }
+            "logout — návrat z root shellu na běžného uživatele.".to_string()
+        } else {
+            session.cwd = default_cwd;
+            format!("Relace resetována do {}", session.cwd)
+        };
+        state
+            .shell_sessions
+            .write()
+            .await
+            .insert(session_key, session.clone());
+        let reset_target = if active_conn.mode == "ssh" {
+            format!("{}@{}:{}", active_conn.user, active_conn.host, active_conn.port)
+        } else {
+            "local".to_string()
+        };
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "ok": true,
+                "exit_code": 0,
+                "duration_ms": duration_ms,
+                "target": reset_target,
+                "is_root": false,
+                "cwd": session.cwd,
+                "output": msg,
+            })),
+        );
+    }
+
+    // Execute command inside stateful bash with working directory tracking
+    let cd_line = if session.cwd == "~" {
+        "cd ~ 2>/dev/null || true".to_string()
+    } else {
+        format!(
+            "cd -- {} 2>/dev/null || cd ~ 2>/dev/null || true",
+            shell_single_quote(&session.cwd)
+        )
+    };
+    let wrapped_script = format!(
+        "export DEBIAN_FRONTEND=noninteractive\n\
+         {}\n\
+         trap '__ec=$?; printf \"\\n__VYKYLAB_PWD__:%s\\n\" \"$(pwd)\"; exit $__ec' EXIT\n\
+         {}\n",
+        cd_line, cmd
+    );
+
+    let output = exec_target_bash(
+        &active_conn,
+        &wrapped_script,
+        session.as_root,
+        Duration::from_secs(45),
+    )
+    .await;
+    let duration_ms = started.elapsed().as_millis() as u64;
+
     let (ok, exit_code, text) = match output {
         Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let raw_stdout = String::from_utf8_lossy(&out.stdout);
+            let mut clean_lines = Vec::new();
+            let mut parsed_cwd: Option<String> = None;
+            for line in raw_stdout.lines() {
+                if let Some(pwd_val) = line.strip_prefix("__VYKYLAB_PWD__:") {
+                    let trimmed_pwd = pwd_val.trim();
+                    if !trimmed_pwd.is_empty() {
+                        parsed_cwd = Some(trimmed_pwd.to_string());
+                    }
+                } else {
+                    clean_lines.push(line);
+                }
+            }
+            if let Some(new_cwd) = parsed_cwd {
+                session.cwd = new_cwd;
+                state
+                    .shell_sessions
+                    .write()
+                    .await
+                    .insert(session_key, session.clone());
+            }
+
+            let stdout = clean_lines.join("\n").trim().to_string();
             let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
             let combined = match (stdout.is_empty(), stderr.is_empty()) {
                 (false, true) => stdout,
@@ -2750,7 +2997,7 @@ async fn admin_exec(
             };
             (out.status.success(), out.status.code().unwrap_or(-1), combined)
         }
-        Err(e) => (false, -1, format!("Chyba spuštění: {}", e)),
+        Err(e) => (false, -1, e),
     };
 
     (
@@ -2760,6 +3007,8 @@ async fn admin_exec(
             "exit_code": exit_code,
             "duration_ms": duration_ms,
             "target": target_label,
+            "is_root": session.as_root,
+            "cwd": session.cwd,
             "output": text
         })),
     )

@@ -131,8 +131,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newScCmd, setNewScCmd] = useState('');
   const [cmdHistoryIdx, setCmdHistoryIdx] = useState<number>(-1);
   const [sshRunning, setSshRunning] = useState(false);
+  const [sshIsRoot, setSshIsRoot] = useState(false);
+  const [sshCwd, setSshCwd] = useState<string>('~');
   const [sshHistory, setSshHistory] = useState<
-    { id: number; cmd: string; output: string; ok: boolean; target?: string; duration_ms?: number; exit_code?: number }[]
+    {
+      id: number;
+      cmd: string;
+      output: string;
+      ok: boolean;
+      target?: string;
+      duration_ms?: number;
+      exit_code?: number;
+      is_root?: boolean;
+      cwd?: string;
+    }[]
   >([]);
   const sshEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -629,6 +641,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         }),
       });
       const json = await res.json();
+      if (typeof json.is_root === 'boolean') setSshIsRoot(json.is_root);
+      if (typeof json.cwd === 'string') setSshCwd(json.cwd);
       setSshHistory((prev) => [
         ...prev,
         {
@@ -639,6 +653,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           target: json.target,
           duration_ms: json.duration_ms,
           exit_code: json.exit_code,
+          is_root: typeof json.is_root === 'boolean' ? json.is_root : sshIsRoot,
+          cwd: typeof json.cwd === 'string' ? json.cwd : sshCwd,
         },
       ]);
       window.setTimeout(() => sshEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 40);
@@ -687,6 +703,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         { method: 'POST' }
       );
       if (res.ok) {
+        setSshIsRoot(false);
+        setSshCwd('~');
         await onRefresh();
         onShowToast(true, 'SSH profil aktivován.');
       }
@@ -1554,10 +1572,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const activeConn =
             data.ssh.connections.find((c) => c.id === data.ssh.active_connection_id) ||
             data.ssh.connections[0];
-          const promptLabel =
-            activeConn?.mode === 'ssh'
-              ? `${activeConn.user}@${activeConn.host}:${activeConn.port}`
-              : `sudo@${mon.host_name}`;
+          const promptUser = sshIsRoot
+            ? 'root'
+            : activeConn?.mode === 'ssh'
+              ? activeConn.user
+              : activeConn?.user && activeConn.user !== 'sudo'
+                ? activeConn.user
+                : 'petr';
+          const promptHost =
+            activeConn?.mode === 'ssh' ? activeConn.host : mon.host_name;
+          const promptLabel = `${promptUser}@${promptHost}:${sshCwd}${sshIsRoot ? '#' : '$'}`;
 
           return (
             <main className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1 min-h-0 items-stretch">
@@ -1723,16 +1747,48 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <section className="lg:col-span-8 lg:h-full apple-card p-5 flex flex-col gap-3.5 min-h-[420px]">
                 <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-white/[0.07]">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 ${
+                        sshIsRoot
+                          ? 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.85)]'
+                          : 'bg-emerald-400'
+                      }`}
+                    />
                     <span className="text-sm font-semibold text-white truncate">
                       {activeConn?.name || 'Shell'}
                     </span>
-                    <span className="text-[11px] font-mono text-zinc-400 truncate">
+                    {sshIsRoot && (
+                      <span className="px-2 py-0.5 rounded-full bg-rose-500/20 border border-rose-400/40 text-rose-300 text-[10px] font-semibold uppercase tracking-wider shrink-0">
+                        ROOT
+                      </span>
+                    )}
+                    <span
+                      className={`text-[11px] font-mono truncate ${
+                        sshIsRoot ? 'text-rose-300' : 'text-zinc-400'
+                      }`}
+                    >
                       ({promptLabel})
                     </span>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={sshRunning}
+                      onClick={() => void runSshCommand(sshIsRoot ? 'exit' : 'sudo su')}
+                      className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors disabled:opacity-40 ${
+                        sshIsRoot
+                          ? 'bg-rose-500/20 hover:bg-rose-500/30 border-rose-400/40 text-rose-200'
+                          : 'bg-cyan-500/15 hover:bg-cyan-500/25 border-cyan-400/35 text-cyan-200'
+                      }`}
+                      title={
+                        sshIsRoot
+                          ? 'Ukončit root režim (exit)'
+                          : 'Přepnout na root shell (sudo su)'
+                      }
+                    >
+                      {sshIsRoot ? 'exit root' : 'sudo su'}
+                    </button>
                     <button
                       type="button"
                       onClick={() => setSshHistory([])}
@@ -1757,29 +1813,46 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="apple-well flex-1 min-h-0 p-4 font-mono text-xs space-y-3 overflow-y-auto">
                   {sshHistory.length === 0 && (
                     <div className="text-zinc-500 text-xs">
-                      Zadej příkaz dolů nebo klikni na některou ze zkratek vlevo.
+                      Zadej příkaz dolů (podporuje i <span className="text-zinc-300">sudo su</span>,{' '}
+                      <span className="text-zinc-300">cd</span>, <span className="text-zinc-300">exit</span>) nebo klikni na zkratku vlevo.
                     </div>
                   )}
-                  {sshHistory.map((item) => (
-                    <div key={item.id} className="space-y-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-cyan-300 truncate">
-                          {item.target || promptLabel}:~$ <span className="text-white">{item.cmd}</span>
+                  {sshHistory.map((item) => {
+                    const lineHost =
+                      item.target === 'local'
+                        ? `${item.is_root ? 'root' : 'petr'}@${mon.host_name}`
+                        : item.target === 'root@local'
+                          ? `root@${mon.host_name}`
+                          : item.target || `${promptUser}@${promptHost}`;
+                    const linePrompt = `${lineHost}:${item.cwd || '~'}${item.is_root ? '#' : '$'}`;
+                    return (
+                      <div key={item.id} className="space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <div
+                            className={`truncate ${
+                              item.is_root ? 'text-rose-300' : 'text-cyan-300'
+                            }`}
+                          >
+                            {linePrompt} <span className="text-white">{item.cmd}</span>
+                          </div>
+                          {item.duration_ms !== undefined && (
+                            <span className="text-[10px] text-zinc-500 shrink-0">
+                              {item.ok ? 'OK' : `exit ${item.exit_code ?? 1}`} · {item.duration_ms}ms
+                            </span>
+                          )}
                         </div>
-                        {item.duration_ms !== undefined && (
-                          <span className="text-[10px] text-zinc-500 shrink-0">
-                            {item.ok ? 'OK' : `exit ${item.exit_code ?? 1}`} · {item.duration_ms}ms
-                          </span>
-                        )}
-                      </div>
-                      <pre
-                        className={`whitespace-pre-wrap break-words text-[11px] pl-3 border-l ${item.ok ? 'text-zinc-300 border-white/15' : 'text-rose-300 border-rose-400/50'
+                        <pre
+                          className={`whitespace-pre-wrap break-words text-[11px] pl-3 border-l ${
+                            item.ok
+                              ? 'text-zinc-300 border-white/15'
+                              : 'text-rose-300 border-rose-400/50'
                           }`}
-                      >
-                        {item.output}
-                      </pre>
-                    </div>
-                  ))}
+                        >
+                          {item.output}
+                        </pre>
+                      </div>
+                    );
+                  })}
                   <div ref={sshEndRef} />
                 </div>
 
@@ -1790,9 +1863,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   }}
                   className="shrink-0 flex items-center gap-2"
                 >
-                  <div className="apple-well flex-1 flex items-center gap-2 px-3.5 py-2.5 focus-within:border-cyan-400/50">
-                    <span className="font-mono text-xs text-cyan-300 shrink-0">
-                      {promptLabel}$
+                  <div
+                    className={`apple-well flex-1 flex items-center gap-2 px-3.5 py-2.5 ${
+                      sshIsRoot
+                        ? 'border-rose-500/35 focus-within:border-rose-400/70'
+                        : 'focus-within:border-cyan-400/50'
+                    }`}
+                  >
+                    <span
+                      className={`font-mono text-xs shrink-0 ${
+                        sshIsRoot ? 'text-rose-300 font-semibold' : 'text-cyan-300'
+                      }`}
+                    >
+                      {promptLabel}
                     </span>
                     <input
                       type="text"
