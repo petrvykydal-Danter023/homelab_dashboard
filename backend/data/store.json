@@ -155,7 +155,7 @@
       "name": "Linda",
       "workspace_label": "Vykylab",
       "role": "Uživatel",
-      "location": "Jevíčko",
+      "location": "Brno",
       "avatar_initials": "L",
       "avatar_color": "soft-pink",
       "is_admin": false,
@@ -228,66 +228,18 @@
       "name": "Peťa",
       "workspace_label": "Vykylab",
       "role": "Uživatel",
-      "location": "Praha",
+      "location": "Jevíčko",
       "avatar_initials": "P",
       "avatar_color": "cyan",
       "is_admin": false,
       "pin_code": null,
       "favorite_services": [
         "svc-adguard",
-        "svc-portainer"
+        "svc-portainer",
+        "svc-grafana"
       ],
       "visible_services": null,
-      "shortcuts": [
-        {
-          "id": "sc-dashboard",
-          "label": "Portainer",
-          "category": "service",
-          "kind": "link",
-          "target": "https://portainer.vykylab.local",
-          "icon": "dashboard"
-        },
-        {
-          "id": "sc-containers",
-          "label": "Docker ps",
-          "category": "service",
-          "kind": "script",
-          "target": "docker ps --format 'table {{.Names}}\\t{{.Status}}' || uname -a",
-          "icon": "table"
-        },
-        {
-          "id": "sc-adguard",
-          "label": "AdGuard DNS",
-          "category": "service",
-          "kind": "link",
-          "target": "https://dns.vykylab.local",
-          "icon": "shield"
-        },
-        {
-          "id": "sc-disk",
-          "label": "Kontrola disků",
-          "category": "service",
-          "kind": "script",
-          "target": "df -h /",
-          "icon": "terminal"
-        },
-        {
-          "id": "sc-uptime",
-          "label": "Uptime & Load",
-          "category": "account",
-          "kind": "script",
-          "target": "uptime",
-          "icon": "user"
-        },
-        {
-          "id": "sc-backup",
-          "label": "Backup Sync",
-          "category": "account",
-          "kind": "script",
-          "target": "echo 'Snapshot ověřen: 3-2-1 OK'",
-          "icon": "settings"
-        }
-      ]
+      "shortcuts": []
     },
     {
       "id": "prof-mamka",
@@ -298,7 +250,7 @@
       "avatar_initials": "M",
       "avatar_color": "owl-brown",
       "is_admin": false,
-      "pin_code": null,
+      "pin_code": "1234",
       "favorite_services": [
         "svc-portainer",
         "svc-adguard",
@@ -468,7 +420,7 @@
       "name": "Traefik Proxy",
       "subtitle": "Reverse Proxy & TLS",
       "status": "running",
-      "uptime": "Up (healthy) · 18d",
+      "uptime": "Up (healthy) · právě teď",
       "url": "https://traefik.vykylab.local",
       "icon": "layers",
       "image_url": null,
@@ -583,8 +535,8 @@
       "id": "svc-grafana",
       "name": "Grafana",
       "subtitle": "Metriky & Telemetrie",
-      "status": "stopped",
-      "uptime": "Stopped",
+      "status": "running",
+      "uptime": "Up (healthy) · právě teď",
       "url": "https://grafana.vykylab.local",
       "icon": "activity",
       "image_url": null,
@@ -662,6 +614,20 @@
     }
   ],
   "events": [
+    {
+      "id": "evt-0e90691d",
+      "timestamp": "11:29",
+      "level": "info",
+      "source": "Grafana",
+      "message": "Akce 'start' provedena na službě Grafana."
+    },
+    {
+      "id": "evt-06bc13ea",
+      "timestamp": "11:29",
+      "level": "info",
+      "source": "Traefik Proxy",
+      "message": "Akce 'restart' provedena na službě Traefik Proxy."
+    },
     {
       "id": "evt-9c84e3d5",
       "timestamp": "11:19",
@@ -923,20 +889,6 @@
     },
     {
       "id": "evt-d8673326",
-      "timestamp": "14:14",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-8dd28aaa",
-      "timestamp": "14:14",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-3f22d97e",
       "timestamp": "14:14",
       "level": "ok",
       "source": "Kontrola systému",

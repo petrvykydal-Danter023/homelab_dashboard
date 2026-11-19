@@ -456,8 +456,8 @@ export function AvatarOrb({
   };
 
   const orbClasses = `${sizeClass} rounded-full relative flex items-center justify-center overflow-hidden transition-all duration-300 ${theme.orb} ${
-    profile.is_admin ? 'ring-2 ring-amber-400/50' : ''
-  } ${interactive || onClick ? 'cursor-pointer active:scale-95' : ''} ${className}`;
+    interactive || onClick ? 'cursor-pointer active:scale-95' : ''
+  } ${className}`;
 
   const blinkTransition = blink.slow ? 'duration-200' : 'duration-100';
 

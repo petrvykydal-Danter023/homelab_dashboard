@@ -30,13 +30,9 @@ import {
   Server,
   Settings,
   Shield,
-  Table2,
   Terminal,
   Trash2,
   Upload,
-  User,
-  UserPlus,
-  Users,
   X,
   Zap,
 } from 'lucide-react';
@@ -44,7 +40,6 @@ import type {
   DashboardResponse,
   ServiceSearchHit,
   ServiceSearchResponse,
-  ShortcutKind,
   UserProfile,
   UserShortcut,
 } from './types';
@@ -57,24 +52,6 @@ import {
   getProfileAccentColor,
   getProfileAvatarTheme,
 } from './Avatar';
-
-function renderShortcutIcon(icon: string, className = 'w-4 h-4') {
-  switch (icon) {
-    case 'dashboard':
-      return <Layers className={className} />;
-    case 'table':
-      return <Table2 className={className} />;
-    case 'shield':
-      return <Shield className={className} />;
-    case 'user':
-      return <User className={className} />;
-    case 'settings':
-      return <Settings className={className} />;
-    case 'terminal':
-    default:
-      return <Terminal className={className} />;
-  }
-}
 
 function renderServiceIcon(icon: string, className = 'w-5 h-5') {
   switch (icon) {
@@ -242,10 +219,8 @@ export default function App() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // First-time / switchable Profile Hub ("Rozcestník")
-  const [showProfileHub, setShowProfileHub] = useState<boolean>(() => {
-    return !window.localStorage.getItem('vykylab_profile_selected');
-  });
+  // Always open Profile Hub ("Rozcestník") first on app launch
+  const [showProfileHub, setShowProfileHub] = useState<boolean>(true);
 
   // PIN unlock prompt for protected profiles (e.g. sudo)
   const [pinTargetProfile, setPinTargetProfile] = useState<UserProfile | null>(null);
@@ -351,13 +326,9 @@ export default function App() {
   const [editRole, setEditRole] = useState('');
   const [editLocation, setEditLocation] = useState('');
   const [editAvatarColor, setEditAvatarColor] = useState('cyan');
-  const [newProfileName, setNewProfileName] = useState('');
-  const [newProfileLocation, setNewProfileLocation] = useState('Jevíčko');
 
   // Shortcut form state
   const [scLabel, setScLabel] = useState('');
-  const [scCategory, setScCategory] = useState<'service' | 'account'>('service');
-  const [scKind, setScKind] = useState<ShortcutKind>('script');
   const [scTarget, setScTarget] = useState('');
 
   // Upload state
@@ -478,35 +449,6 @@ export default function App() {
     }
   };
 
-  const handleCreateProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newProfileName.trim()) return;
-    setBusyId('create-prof');
-    try {
-      const res = await fetch('/api/profiles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: newProfileName.trim(),
-          workspace_label: data?.active_profile.workspace_label || 'Vykylab',
-          role: 'Uživatel',
-          location: newProfileLocation.trim() || 'Jevíčko',
-          avatar_color: 'cyan',
-        }),
-      });
-      const json = await res.json();
-      if (json.dashboard) {
-        setData(json.dashboard);
-        window.localStorage.setItem('vykylab_profile_selected', json.dashboard.active_profile.id);
-      }
-      setNewProfileName('');
-      setShowProfileHub(false);
-      showToast(true, 'Nový profil vytvořen a aktivován.');
-    } finally {
-      setBusyId(null);
-    }
-  };
-
   const handleActivateProfile = async (
     id: string,
     pin?: string,
@@ -606,10 +548,10 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             label: scLabel.trim(),
-            category: scCategory,
-            kind: scKind,
+            category: 'service',
+            kind: 'script',
             target: scTarget.trim(),
-            icon: scKind === 'link' ? 'dashboard' : 'terminal',
+            icon: 'terminal',
           }),
         }
       );
@@ -656,12 +598,59 @@ export default function App() {
 
   const [serviceSearch, setServiceSearch] = useState<ServiceSearchResponse | null>(null);
   const [noMatchCount, setNoMatchCount] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const servicesContainerRef = useRef<HTMLDivElement | null>(null);
   const serviceCardRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
   const prevCardTopsRef = useRef<Record<string, number>>({});
   const flipCleanupTimersRef = useRef<Record<string, number>>({});
   const noMatchDebounceRef = useRef<number | null>(null);
   const lastNoMatchTriggerRef = useRef(0);
+
+  // Global Cmd+K / Ctrl+K / "/" shortcut to jump straight into Omni-Search
+  useEffect(() => {
+    const onGlobalKeyDown = (e: KeyboardEvent) => {
+      if (
+        !data ||
+        data.active_profile.is_admin ||
+        showProfileHub ||
+        pinTargetProfile ||
+        profileModalOpen ||
+        shortcutModalOpen ||
+        eventsModalOpen ||
+        uploadModalOpen ||
+        scriptOutputModal
+      ) {
+        return;
+      }
+
+      const isCmdK = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k';
+      const target = e.target as HTMLElement | null;
+      const inEditable =
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable);
+
+      if (isCmdK || (e.key === '/' && !inEditable)) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+    };
+
+    window.addEventListener('keydown', onGlobalKeyDown);
+    return () => window.removeEventListener('keydown', onGlobalKeyDown);
+  }, [
+    data,
+    showProfileHub,
+    pinTargetProfile,
+    profileModalOpen,
+    shortcutModalOpen,
+    eventsModalOpen,
+    uploadModalOpen,
+    scriptOutputModal,
+  ]);
 
   useEffect(() => {
     const trimmed = searchQuery.trim();
@@ -835,8 +824,9 @@ export default function App() {
   const profile = data.active_profile;
   const profileTheme = getProfileAvatarTheme(profile);
   const profileAccent = getProfileAccentColor(profile);
-  const serviceShortcuts = filteredShortcuts.filter((s) => s.category !== 'account');
-  const accountShortcuts = filteredShortcuts.filter((s) => s.category === 'account');
+  const shellShortcuts = filteredShortcuts.filter(
+    (s) => s.category !== 'account' && s.kind === 'script'
+  );
 
   const pinDotCount = Math.max(4, pinInput.length);
   const handleKeypadDigit = (digit: string) => {
@@ -1109,9 +1099,9 @@ export default function App() {
         <header className="flex items-center gap-3.5">
           <button
             type="button"
-            onClick={() => setProfileModalOpen(true)}
+            onClick={() => setShowProfileHub(true)}
             className="hover:scale-[1.04] transition-transform shrink-0"
-            title="Přepnout nebo upravit profil"
+            title="Vybrat profil"
           >
             <AvatarBadge profile={profile} />
           </button>
@@ -1146,21 +1136,12 @@ export default function App() {
 
               <button
                 type="button"
-                onClick={() => setShowProfileHub(true)}
-                className="px-3.5 py-1.5 rounded-full bg-white/[0.07] hover:bg-white/[0.13] border border-white/[0.1] text-xs font-medium text-white flex items-center gap-1.5 transition-colors"
-                title="Otevřít rozcestník profilů"
-              >
-                <Users className="w-3.5 h-3.5 text-cyan-300" />
-                <span className="hidden sm:inline">Změnit profil</span>
-              </button>
-
-              <button
-                type="button"
                 onClick={() => setProfileModalOpen(true)}
                 className="px-3.5 py-1.5 rounded-full bg-white/[0.07] hover:bg-white/[0.13] border border-white/[0.1] text-xs font-medium text-white flex items-center gap-1.5 transition-colors"
+                title="Nastavení profilu"
               >
-                <User className="w-3.5 h-3.5 text-zinc-300" />
-                <span className="hidden sm:inline">Profil</span>
+                <Settings className="w-3.5 h-3.5 text-zinc-300" />
+                <span className="hidden sm:inline">Nastavení profilu</span>
               </button>
             </div>
           </div>
@@ -1231,13 +1212,29 @@ export default function App() {
                 <div className="relative pointer-events-auto flex-1 min-w-[210px] max-w-xs">
                   <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
+                    ref={searchInputRef}
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && isSearching && orderedServices.length > 0) {
+                        const topService = orderedServices[0];
+                        const topScore = hitMap[topService.id]?.score ?? 0;
+                        if (topScore > 0) {
+                          e.preventDefault();
+                          window.open(topService.url, '_blank', 'noopener,noreferrer');
+                          showToast(true, `Otevřeno: ${topService.name}`);
+                        }
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        setSearchQuery('');
+                        searchInputRef.current?.blur();
+                      }
+                    }}
                     placeholder="Co ti mám najít?"
-                    className="apple-pill-input w-full pl-10 pr-8 py-2 text-xs placeholder:text-zinc-500"
+                    className="apple-pill-input w-full pl-10 pr-14 py-2 text-xs placeholder:text-zinc-500"
                   />
-                  {searchQuery && (
+                  {searchQuery ? (
                     <button
                       type="button"
                       onClick={() => setSearchQuery('')}
@@ -1245,6 +1242,10 @@ export default function App() {
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
+                  ) : (
+                    <span className="pointer-events-none hidden sm:inline-flex items-center gap-0.5 absolute right-3 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-white/[0.08] text-[10px] font-mono text-zinc-400">
+                      ⌘K
+                    </span>
                   )}
                 </div>
 
@@ -1278,46 +1279,14 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* Two-column clean shortcut list matching reference */}
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                    <div className="space-y-1">
-                      {serviceShortcuts.map((sc) => {
-                        const isActive = activeShortcutId === sc.id;
-                        return (
-                          <div key={sc.id} className="group flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleShortcutClick(sc)}
-                              disabled={busyId === sc.id}
-                              className={`flex-1 flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left text-xs font-medium transition-all min-w-0 ${isActive
-                                  ? 'bg-white text-zinc-950 shadow-sm'
-                                  : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
-                                }`}
-                            >
-                              <span
-                                className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${isActive
-                                    ? 'bg-zinc-900 text-white'
-                                    : 'bg-white/[0.07] text-zinc-300'
-                                  }`}
-                              >
-                                {busyId === sc.id ? (
-                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  renderShortcutIcon(sc.icon, 'w-3.5 h-3.5')
-                                )}
-                              </span>
-                              <span className="truncate">{sc.label}</span>
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                        Účet & Systém
+                  {/* Clean Shell Shortcuts list (Name + Shell Command only) */}
+                  <div className="space-y-1.5">
+                    {shellShortcuts.length === 0 ? (
+                      <div className="apple-well px-3.5 py-4 text-center text-xs text-zinc-500">
+                        Zatím žádné shell zkratky — přidej tlačítkem +
                       </div>
-                      {accountShortcuts.map((sc) => {
+                    ) : (
+                      shellShortcuts.map((sc) => {
                         const isActive = activeShortcutId === sc.id;
                         return (
                           <button
@@ -1325,39 +1294,39 @@ export default function App() {
                             type="button"
                             onClick={() => handleShortcutClick(sc)}
                             disabled={busyId === sc.id}
-                            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left text-xs font-medium transition-all min-w-0 ${isActive
+                            className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-left text-xs font-medium transition-all min-w-0 ${
+                              isActive
                                 ? 'bg-white text-zinc-950 shadow-sm'
-                                : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
-                              }`}
+                                : 'text-zinc-200 hover:text-white hover:bg-white/[0.06]'
+                            }`}
                           >
-                            <span
-                              className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${isActive
-                                  ? 'bg-zinc-900 text-white'
-                                  : 'bg-white/[0.07] text-zinc-300'
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span
+                                className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${
+                                  isActive
+                                    ? 'bg-zinc-900 text-white'
+                                    : 'bg-white/[0.07] text-zinc-300'
                                 }`}
+                              >
+                                {busyId === sc.id ? (
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Terminal className="w-3.5 h-3.5" />
+                                )}
+                              </span>
+                              <span className="truncate">{sc.label}</span>
+                            </div>
+                            <span
+                              className={`text-[10px] font-mono truncate max-w-[45%] shrink-0 ${
+                                isActive ? 'text-zinc-600' : 'text-zinc-500'
+                              }`}
                             >
-                              {busyId === sc.id ? (
-                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                renderShortcutIcon(sc.icon, 'w-3.5 h-3.5')
-                              )}
+                              {sc.target}
                             </span>
-                            <span className="truncate">{sc.label}</span>
                           </button>
                         );
-                      })}
-
-                      <button
-                        type="button"
-                        onClick={() => setProfileModalOpen(true)}
-                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/[0.06] transition-all"
-                      >
-                        <span className="w-6 h-6 rounded-lg bg-white/[0.07] text-zinc-300 flex items-center justify-center shrink-0">
-                          <User className="w-3.5 h-3.5" />
-                        </span>
-                        <span className="truncate">Správa profilu</span>
-                      </button>
-                    </div>
+                      })
+                    )}
                   </div>
                 </div>
               </section>
@@ -1662,16 +1631,16 @@ export default function App() {
       </div>
 
       {/* ================================================================== */}
-      {/* MODAL: USER PROFILE MANAGER & SWITCHER                             */}
+      {/* MODAL: PROFILE SETTINGS ONLY                                       */}
       {/* ================================================================== */}
       {profileModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="apple-card w-full max-w-lg p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+          <div className="apple-card w-full max-w-md p-6 space-y-5">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-base font-semibold text-white">Uživatelský profil</h2>
+                <h2 className="text-base font-semibold text-white">Nastavení profilu</h2>
                 <p className="text-xs text-zinc-400">
-                  Přepnutí profilu nebo úprava údajů pro Vykylab
+                  Úprava údajů profilu {profile.name}
                 </p>
               </div>
               <button
@@ -1683,41 +1652,7 @@ export default function App() {
               </button>
             </div>
 
-            {/* Profile Switcher Pills */}
-            <div className="space-y-2">
-              <div className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
-                Profily ({data.profiles.length})
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {data.profiles.map((p) => {
-                  const active = p.id === profile.id;
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => handleSelectProfile(p, false)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 border transition-colors ${active
-                          ? 'bg-white text-zinc-950 border-white'
-                          : 'bg-white/[0.05] text-zinc-200 border-white/[0.1] hover:bg-white/[0.1]'
-                        }`}
-                    >
-                      <span
-                        className={`${AVATAR_CONFIG.pill.sizeClass} font-bold flex items-center justify-center ${
-                          active ? 'bg-zinc-900 text-white' : getProfileAvatarTheme(p).badge
-                        }`}
-                      >
-                        {p.avatar_initials}
-                      </span>
-                      <span>{p.name}</span>
-                      {p.has_pin && <Lock className="w-3 h-3 opacity-70" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Edit Active Profile */}
-            <form onSubmit={handleSaveProfile} className="space-y-3 pt-2 border-t border-white/[0.08]">
+            <form onSubmit={handleSaveProfile} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] text-zinc-400 mb-1">Jméno</label>
@@ -1769,39 +1704,6 @@ export default function App() {
                 Uložit změny profilu
               </button>
             </form>
-
-            {/* Create New Profile */}
-            <form
-              onSubmit={handleCreateProfile}
-              className="space-y-2.5 pt-3 border-t border-white/[0.08]"
-            >
-              <div className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-                <UserPlus className="w-3.5 h-3.5" /> Přidat nový profil
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newProfileName}
-                  onChange={(e) => setNewProfileName(e.target.value)}
-                  placeholder="Jméno (např. Petr)"
-                  className="apple-well flex-1 px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none"
-                />
-                <input
-                  type="text"
-                  value={newProfileLocation}
-                  onChange={(e) => setNewProfileLocation(e.target.value)}
-                  placeholder="Lokalita"
-                  className="apple-well w-28 px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none"
-                />
-                <button
-                  type="submit"
-                  disabled={busyId === 'create-prof' || !newProfileName.trim()}
-                  className="px-4 py-2 rounded-xl bg-white/[0.1] hover:bg-white/[0.18] text-white text-xs font-medium disabled:opacity-40 transition-colors"
-                >
-                  Přidat
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
@@ -1830,45 +1732,20 @@ export default function App() {
                   type="text"
                   value={scLabel}
                   onChange={(e) => setScLabel(e.target.value)}
-                  placeholder="např. Restart Proxy nebo Grafana"
+                  placeholder="např. Docker ps nebo Disky"
                   className="apple-well w-full px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] text-zinc-400 mb-1">Typ</label>
-                  <select
-                    value={scKind}
-                    onChange={(e) => setScKind(e.target.value as ShortcutKind)}
-                    className="apple-well w-full px-3 py-2 text-xs text-white outline-none"
-                  >
-                    <option value="script">Script / Příkaz</option>
-                    <option value="link">Webový odkaz</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] text-zinc-400 mb-1">Sekce</label>
-                  <select
-                    value={scCategory}
-                    onChange={(e) => setScCategory(e.target.value as 'service' | 'account')}
-                    className="apple-well w-full px-3 py-2 text-xs text-white outline-none"
-                  >
-                    <option value="service">Služby</option>
-                    <option value="account">Účet & Systém</option>
-                  </select>
-                </div>
-              </div>
-
               <div>
                 <label className="block text-[11px] text-zinc-400 mb-1">
-                  {scKind === 'link' ? 'URL adresa' : 'Shell příkaz'}
+                  Shell příkaz
                 </label>
                 <input
                   type="text"
                   value={scTarget}
                   onChange={(e) => setScTarget(e.target.value)}
-                  placeholder={scKind === 'link' ? 'https://...' : 'uptime'}
+                  placeholder="uptime"
                   className="apple-well w-full px-3 py-2 text-xs font-mono text-white placeholder:text-zinc-500 outline-none"
                 />
               </div>
@@ -1878,12 +1755,12 @@ export default function App() {
                 disabled={busyId === 'add-sc' || !scLabel.trim() || !scTarget.trim()}
                 className="w-full py-2.5 rounded-xl bg-white text-zinc-950 font-semibold text-xs hover:bg-zinc-200 disabled:opacity-40 transition-colors"
               >
-                Přidat do profilu {profile.name}
+                Přidat zkratku
               </button>
             </form>
 
             <div className="pt-3 border-t border-white/[0.08] space-y-1.5 max-h-44 overflow-y-auto">
-              {profile.shortcuts.map((sc) => (
+              {shellShortcuts.map((sc) => (
                 <div
                   key={sc.id}
                   className="apple-well px-3 py-2 flex items-center justify-between gap-2 text-xs"

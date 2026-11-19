@@ -8,11 +8,12 @@ use axum::{
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     fs,
     net::SocketAddr,
     path::{Path as StdPath, PathBuf},
     sync::Arc,
-    time::SystemTime,
+    time::{Duration, Instant, SystemTime},
 };
 use sysinfo::{Disks, Networks, ProcessesToUpdate, System};
 use tokio::sync::RwLock;
@@ -309,6 +310,7 @@ pub struct DashboardResponse {
     pub system_status_text: String,
     pub active_profile: PublicUserProfile,
     pub profiles: Vec<PublicUserProfile>,
+    pub docker_live: bool,
     pub services: Vec<HomelabService>,
     pub events: Vec<SystemEvent>,
     pub uploads: Vec<UploadedFileInfo>,
@@ -343,6 +345,7 @@ pub struct UpdateProfilePayload {
     pub location: Option<String>,
     pub avatar_color: Option<String>,
     pub visible_services: Option<Vec<String>>,
+    pub pin_code: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -375,12 +378,20 @@ pub struct ServiceActionPayload {
 // ============================================================================
 
 #[derive(Clone)]
+struct WeatherEntry {
+    summary: String,
+    fetched_at: Instant,
+}
+
+#[derive(Clone)]
 struct AppState {
     store_path: PathBuf,
     profiles_yaml_path: PathBuf,
     profiles_yaml_mtime: Arc<RwLock<Option<SystemTime>>>,
     uploads_dir: PathBuf,
     service_images_dir: PathBuf,
+    http: reqwest::Client,
+    weather_cache: Arc<RwLock<HashMap<String, WeatherEntry>>>,
     store: Arc<RwLock<PersistedStore>>,
     sys: Arc<RwLock<System>>,
 }
@@ -464,12 +475,19 @@ impl AppState {
         let mut sys = System::new_all();
         sys.refresh_all();
 
+        let http = reqwest::Client::builder()
+            .timeout(Duration::from_secs(4))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
         Self {
             store_path,
             profiles_yaml_path,
             profiles_yaml_mtime: Arc::new(RwLock::new(yaml_mtime)),
             uploads_dir,
             service_images_dir,
+            http,
+            weather_cache: Arc::new(RwLock::new(HashMap::new())),
             store: Arc::new(RwLock::new(store)),
             sys: Arc::new(RwLock::new(sys)),
         }
@@ -1062,6 +1080,236 @@ fn format_uptime(secs: u64) -> String {
     }
 }
 
+fn weather_code_cz(code: i64, wind_kmh: f64) -> &'static str {
+    match code {
+        0 => {
+            if wind_kmh < 8.0 {
+                "jasno a bez větru"
+            } else {
+                "jasno"
+            }
+        }
+        1 => "skoro jasno",
+        2 => "polojasno",
+        3 => "zataženo",
+        45 | 48 => "mlha",
+        51 | 53 | 55 | 56 | 57 => "mrholení",
+        61 | 63 | 65 | 66 | 67 => "déšť",
+        71 | 73 | 75 | 77 => "sněžení",
+        80..=82 => "přeháňky",
+        85 | 86 => "sněhové přeháňky",
+        95 | 96 | 99 => "bouřka",
+        _ => {
+            if wind_kmh < 8.0 {
+                "bez větru"
+            } else {
+                "oblačno"
+            }
+        }
+    }
+}
+
+async fn fetch_open_meteo_weather(client: &reqwest::Client, location: &str) -> Option<String> {
+    let trimmed = location.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    #[derive(Deserialize)]
+    struct GeoResult {
+        latitude: f64,
+        longitude: f64,
+    }
+    #[derive(Deserialize)]
+    struct GeoResponse {
+        results: Option<Vec<GeoResult>>,
+    }
+    #[derive(Deserialize)]
+    struct CurrentWeather {
+        temperature_2m: f64,
+        weather_code: Option<i64>,
+        wind_speed_10m: Option<f64>,
+    }
+    #[derive(Deserialize)]
+    struct ForecastResponse {
+        current: Option<CurrentWeather>,
+    }
+
+    let geo: GeoResponse = client
+        .get("https://geocoding-api.open-meteo.com/v1/search")
+        .query(&[
+            ("name", trimmed),
+            ("count", "1"),
+            ("language", "cs"),
+            ("format", "json"),
+        ])
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+
+    let coords = geo.results?.into_iter().next()?;
+    let forecast: ForecastResponse = client
+        .get("https://api.open-meteo.com/v1/forecast")
+        .query(&[
+            ("latitude", coords.latitude.to_string()),
+            ("longitude", coords.longitude.to_string()),
+            ("current", "temperature_2m,weather_code,wind_speed_10m".to_string()),
+            ("timezone", "auto".to_string()),
+        ])
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+
+    let cur = forecast.current?;
+    let temp = cur.temperature_2m.round() as i64;
+    let wind = cur.wind_speed_10m.unwrap_or(0.0);
+    let desc = weather_code_cz(cur.weather_code.unwrap_or(1), wind);
+    Some(format!("{}°C {}", temp, desc))
+}
+
+async fn resolve_weather_for_location(state: &AppState, location: &str, fallback: &str) -> String {
+    let key = location.trim().to_lowercase();
+    if key.is_empty() {
+        return fallback.to_string();
+    }
+
+    const WEATHER_TTL: Duration = Duration::from_secs(20 * 60);
+
+    {
+        let cache = state.weather_cache.read().await;
+        if let Some(entry) = cache.get(&key) {
+            if entry.fetched_at.elapsed() < WEATHER_TTL {
+                return entry.summary.clone();
+            }
+            // Expired: return stale immediately and refresh in background
+            let state_bg = state.clone();
+            let loc_bg = location.trim().to_string();
+            let key_bg = key.clone();
+            tokio::spawn(async move {
+                if let Some(summary) = fetch_open_meteo_weather(&state_bg.http, &loc_bg).await {
+                    let mut w = state_bg.weather_cache.write().await;
+                    w.insert(
+                        key_bg,
+                        WeatherEntry {
+                            summary,
+                            fetched_at: Instant::now(),
+                        },
+                    );
+                }
+            });
+            return entry.summary.clone();
+        }
+    }
+
+    // First fetch for this location: try within 1.8s so UI gets live weather right away
+    let fetched = tokio::time::timeout(
+        Duration::from_millis(1800),
+        fetch_open_meteo_weather(&state.http, location),
+    )
+    .await
+    .ok()
+    .flatten();
+
+    if let Some(summary) = fetched {
+        let mut cache = state.weather_cache.write().await;
+        cache.insert(
+            key,
+            WeatherEntry {
+                summary: summary.clone(),
+                fetched_at: Instant::now(),
+            },
+        );
+        return summary;
+    }
+
+    fallback.to_string()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct DockerPsRow {
+    #[serde(rename = "ID", default)]
+    id: String,
+    #[serde(rename = "Names", default)]
+    names: String,
+    #[serde(rename = "Image", default)]
+    image: String,
+    #[serde(rename = "State", default)]
+    state: String,
+    #[serde(rename = "Status", default)]
+    status: String,
+    #[serde(rename = "Ports", default)]
+    ports: String,
+}
+
+async fn probe_real_docker_containers() -> Option<Vec<DockerPsRow>> {
+    let fut = tokio::process::Command::new("docker")
+        .args(["ps", "-a", "--no-trunc", "--format", "{{json .}}"])
+        .output();
+
+    let output = tokio::time::timeout(Duration::from_millis(1400), fut)
+        .await
+        .ok()?
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut rows = Vec::new();
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(parsed) = serde_json::from_str::<DockerPsRow>(trimmed) {
+            rows.push(parsed);
+        }
+    }
+    Some(rows)
+}
+
+fn infer_docker_icon(name: &str, image: &str) -> String {
+    let hay = format!("{} {}", name.to_ascii_lowercase(), image.to_ascii_lowercase());
+    if hay.contains("adguard") || hay.contains("pihole") || hay.contains("guard") {
+        "shield".to_string()
+    } else if hay.contains("immich") || hay.contains("photo") {
+        "image".to_string()
+    } else if hay.contains("vault") || hay.contains("bitwarden") {
+        "lock".to_string()
+    } else if hay.contains("traefik") || hay.contains("nginx") || hay.contains("caddy") {
+        "layers".to_string()
+    } else if hay.contains("jellyfin") || hay.contains("plex") {
+        "film".to_string()
+    } else if hay.contains("homeassistant") || hay.contains("home-assistant") {
+        "home".to_string()
+    } else if hay.contains("grafana") || hay.contains("prometheus") {
+        "activity".to_string()
+    } else if hay.contains("postgres") || hay.contains("redis") || hay.contains("mariadb") {
+        "database".to_string()
+    } else {
+        "container".to_string()
+    }
+}
+
+fn resolve_docker_target_name(service_id: &str, store_services: &[HomelabService]) -> Option<String> {
+    if let Some(short) = service_id.strip_prefix("docker-") {
+        if !short.is_empty() {
+            return Some(short.to_string());
+        }
+    }
+    store_services
+        .iter()
+        .find(|s| s.id == service_id)
+        .map(|s| s.container_name.clone().unwrap_or_else(|| s.name.clone()))
+}
+
 async fn build_dashboard(state: &AppState) -> DashboardResponse {
     let mut sys = state.sys.write().await;
     sys.refresh_cpu_usage();
@@ -1212,25 +1460,113 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
         .cloned()
         .unwrap_or_else(|| store.profiles[0].clone());
 
-    let synced_services: Vec<HomelabService> = store
-        .services
-        .iter()
-        .map(|s| {
-            if let Some(ref cname) = s.container_name {
-                if let Some(target) = store
-                    .services
-                    .iter()
-                    .find(|d| d.is_docker && (d.id == *cname || d.name.eq_ignore_ascii_case(cname)))
-                {
-                    let mut cloned = s.clone();
-                    cloned.status = target.status.clone();
-                    cloned.uptime = target.uptime.clone();
-                    return cloned;
+    let store_services_snapshot = store.services.clone();
+    let connected_to = format!("{} Main-server", active_profile.workspace_label);
+    let fallback_weather = store.weather_summary.clone();
+    let active_location = active_profile.location.clone();
+    let last_checked = store.last_checked.clone();
+    let events = store.events.clone();
+    let uploads = store.uploads.clone();
+    let ssh = store.ssh.clone();
+    let profiles: Vec<PublicUserProfile> = store.profiles.iter().map(PublicUserProfile::from).collect();
+    drop(store);
+
+    let (real_docker_opt, weather_summary) = tokio::join!(
+        probe_real_docker_containers(),
+        resolve_weather_for_location(state, &active_location, &fallback_weather)
+    );
+
+    let (docker_live, synced_services) = if let Some(real_rows) = real_docker_opt {
+        let mut combined: Vec<HomelabService> = Vec::with_capacity(real_rows.len() + store_services_snapshot.len());
+        for row in real_rows {
+            let short_id: String = row.id.chars().take(12).collect();
+            let existing = store_services_snapshot.iter().find(|s| {
+                s.is_docker
+                    && (s.id == format!("docker-{}", short_id)
+                        || s.container_name.as_deref() == Some(row.names.as_str())
+                        || s.name.eq_ignore_ascii_case(&row.names)
+                        || row.names.to_ascii_lowercase().contains(&s.name.to_ascii_lowercase()))
+            });
+
+            let is_running = row.state.eq_ignore_ascii_case("running");
+            let svc_status = if is_running { "running" } else { "stopped" }.to_string();
+            let svc_uptime = if row.status.trim().is_empty() {
+                svc_status.clone()
+            } else {
+                row.status.clone()
+            };
+
+            combined.push(HomelabService {
+                id: existing
+                    .map(|e| e.id.clone())
+                    .unwrap_or_else(|| format!("docker-{}", short_id)),
+                name: existing
+                    .map(|e| e.name.clone())
+                    .unwrap_or_else(|| row.names.clone()),
+                subtitle: existing
+                    .map(|e| e.subtitle.clone())
+                    .unwrap_or_else(|| row.image.clone()),
+                status: svc_status.clone(),
+                uptime: svc_uptime,
+                url: existing
+                    .map(|e| e.url.clone())
+                    .unwrap_or_else(|| format!("https://{}.vykylab.local", row.names)),
+                icon: existing
+                    .map(|e| e.icon.clone())
+                    .unwrap_or_else(|| infer_docker_icon(&row.names, &row.image)),
+                image_url: existing.and_then(|e| e.image_url.clone()),
+                is_docker: true,
+                container_name: Some(row.names.clone()),
+                preview_rows: vec![
+                    ServicePreviewRow {
+                        name: row.image,
+                        status: svc_status,
+                        meta: if row.ports.trim().is_empty() {
+                            "interní síť".to_string()
+                        } else {
+                            row.ports
+                        },
+                    },
+                ],
+            });
+        }
+
+        // Append non-Docker user links / custom cards and sync any linked container status
+        for s in &store_services_snapshot {
+            if !s.is_docker {
+                let mut cloned = s.clone();
+                if let Some(ref cname) = s.container_name {
+                    if let Some(target) = combined.iter().find(|d| {
+                        d.is_docker && (d.id == *cname || d.name.eq_ignore_ascii_case(cname) || d.container_name.as_deref() == Some(cname.as_str()))
+                    }) {
+                        cloned.status = target.status.clone();
+                        cloned.uptime = target.uptime.clone();
+                    }
                 }
+                combined.push(cloned);
             }
-            s.clone()
-        })
-        .collect();
+        }
+        (true, combined)
+    } else {
+        let fallback: Vec<HomelabService> = store_services_snapshot
+            .iter()
+            .map(|s| {
+                if let Some(ref cname) = s.container_name {
+                    if let Some(target) = store_services_snapshot
+                        .iter()
+                        .find(|d| d.is_docker && (d.id == *cname || d.name.eq_ignore_ascii_case(cname)))
+                    {
+                        let mut cloned = s.clone();
+                        cloned.status = target.status.clone();
+                        cloned.uptime = target.uptime.clone();
+                        return cloned;
+                    }
+                }
+                s.clone()
+            })
+            .collect();
+        (false, fallback)
+    };
 
     let any_stopped = synced_services
         .iter()
@@ -1242,20 +1578,19 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
         "některá služba neběží".to_string()
     };
 
-    let connected_to = format!("{} Main-server", active_profile.workspace_label);
-
     DashboardResponse {
         date_label: Local::now().format("%-d.%-m.").to_string(),
-        weather_summary: store.weather_summary.clone(),
-        last_checked: store.last_checked.clone(),
+        weather_summary,
+        last_checked,
         system_healthy,
         system_status_text,
         active_profile: PublicUserProfile::from(&active_profile),
-        profiles: store.profiles.iter().map(PublicUserProfile::from).collect(),
+        profiles,
+        docker_live,
         services: synced_services,
-        events: store.events.clone(),
-        uploads: store.uploads.clone(),
-        ssh: store.ssh.clone(),
+        events,
+        uploads,
+        ssh,
         monitoring: SystemMonitoring {
             host_name: host_name.clone(),
             os_version,
@@ -1711,6 +2046,14 @@ async fn update_profile(
     if let Some(vis) = payload.visible_services {
         prof.visible_services = Some(vis);
     }
+    if let Some(pin) = payload.pin_code {
+        let trimmed = pin.trim();
+        prof.pin_code = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+    }
 
     state.persist(&store).await;
     drop(store);
@@ -2141,6 +2484,67 @@ async fn service_action(
     Path(service_id): Path<String>,
     Json(payload): Json<ServiceActionPayload>,
 ) -> impl IntoResponse {
+    let action = payload.action.as_str();
+    if !matches!(action, "start" | "restart" | "stop") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "message": "Neznámá akce." })),
+        );
+    }
+
+    // Check if real Docker Engine is reachable
+    if let Some(real_rows) = probe_real_docker_containers().await {
+        let store_snap = state.store.read().await;
+        let resolved_name = resolve_docker_target_name(&service_id, &store_snap.services);
+        drop(store_snap);
+
+        let target_container = resolved_name
+            .as_deref()
+            .and_then(|name| {
+                real_rows.iter().find(|r| {
+                    r.id.starts_with(name)
+                        || r.names.eq_ignore_ascii_case(name)
+                        || r.names.to_ascii_lowercase().contains(&name.to_ascii_lowercase())
+                })
+            })
+            .map(|r| r.names.clone())
+            .or(resolved_name);
+
+        if let Some(cname) = target_container {
+            let cmd_res = tokio::process::Command::new("docker")
+                .args([action, &cname])
+                .output()
+                .await;
+
+            if let Ok(out) = cmd_res {
+                let mut store = state.store.write().await;
+                store.events.insert(
+                    0,
+                    SystemEvent {
+                        id: format!("evt-{}", &Uuid::new_v4().to_string()[..8]),
+                        timestamp: Local::now().format("%H:%M").to_string(),
+                        level: if out.status.success() { "ok" } else { "error" }.to_string(),
+                        source: format!("Docker · {}", cname),
+                        message: if out.status.success() {
+                            format!("Docker '{}' proveden na kontejneru {}.", action, cname)
+                        } else {
+                            String::from_utf8_lossy(&out.stderr).trim().to_string()
+                        },
+                    },
+                );
+                store.events.truncate(40);
+                state.persist(&store).await;
+                drop(store);
+
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({ "ok": out.status.success(), "dashboard": build_dashboard(&state).await })),
+                );
+            }
+        }
+    }
+
+    // Mac / Demo fallback using store.json dummy containers
     let mut store = state.store.write().await;
     let Some(svc) = store.services.iter_mut().find(|s| s.id == service_id) else {
         return (
@@ -2150,7 +2554,7 @@ async fn service_action(
     };
 
     let svc_name = svc.name.clone();
-    match payload.action.as_str() {
+    match action {
         "stop" => {
             svc.status = "stopped".to_string();
             svc.uptime = "Stopped".to_string();
@@ -2169,7 +2573,7 @@ async fn service_action(
             timestamp: Local::now().format("%H:%M").to_string(),
             level: "info".to_string(),
             source: svc_name.clone(),
-            message: format!("Akce '{}' provedena na službě {}.", payload.action, svc_name),
+            message: format!("Akce '{}' provedena na službě {}.", action, svc_name),
         },
     );
     store.events.truncate(40);
@@ -2177,6 +2581,76 @@ async fn service_action(
     drop(store);
 
     (StatusCode::OK, Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })))
+}
+
+async fn get_docker_logs(
+    State(state): State<AppState>,
+    Path(service_id): Path<String>,
+) -> impl IntoResponse {
+    let store = state.store.read().await;
+    let svc_opt = store.services.iter().find(|s| s.id == service_id).cloned();
+    let target_name = resolve_docker_target_name(&service_id, &store.services);
+    drop(store);
+
+    if let Some(real_rows) = probe_real_docker_containers().await {
+        let matched = target_name
+            .as_deref()
+            .and_then(|name| {
+                real_rows.iter().find(|r| {
+                    r.id.starts_with(name)
+                        || r.names.eq_ignore_ascii_case(name)
+                        || r.names.to_ascii_lowercase().contains(&name.to_ascii_lowercase())
+                })
+            })
+            .map(|r| r.names.clone())
+            .or(target_name.clone());
+
+        if let Some(cname) = matched {
+            let fut = tokio::process::Command::new("docker")
+                .args(["logs", "--tail", "80", "--timestamps", &cname])
+                .output();
+            if let Ok(Ok(out)) = tokio::time::timeout(Duration::from_secs(3), fut).await {
+                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                let combined = match (stdout.is_empty(), stderr.is_empty()) {
+                    (false, true) => stdout,
+                    (true, false) => stderr,
+                    (false, false) => format!("{}\n{}", stdout, stderr),
+                    (true, true) => format!("Kontejner '{}' nemá zatím žádné logy.", cname),
+                };
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({ "ok": true, "live": true, "output": combined })),
+                );
+            }
+        }
+    }
+
+    let label = svc_opt
+        .as_ref()
+        .map(|s| s.name.as_str())
+        .or(target_name.as_deref())
+        .unwrap_or("container");
+    let uptime = svc_opt
+        .as_ref()
+        .map(|s| s.uptime.as_str())
+        .unwrap_or("unknown");
+    let demo_log = format!(
+        "[Demo režim · Docker daemon neběží lokálně]\n\
+         Kontejner: {label}\n\
+         Stav: {uptime}\n\
+         ----------------------------------------\n\
+         {now} INFO  vykylab-docker-bridge: připraveno na real Docker CLI / socket\n\
+         {now} INFO  {label}: služba inicializována a čeká na požadavky",
+        label = label,
+        uptime = uptime,
+        now = Local::now().format("%Y-%m-%d %H:%M:%S"),
+    );
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "live": false, "output": demo_log })),
+    )
 }
 
 async fn run_system_check(State(state): State<AppState>) -> impl IntoResponse {
@@ -2523,6 +2997,7 @@ async fn main() {
         .route("/api/profiles/:id/favorites/:service_id", post(toggle_favorite))
         .route("/api/scripts/:shortcut_id/run", post(run_script))
         .route("/api/services/:id/action", post(service_action))
+        .route("/api/docker/logs/:id", get(get_docker_logs))
         .route("/api/services/:id/image", post(upload_service_image))
         .route("/api/service-images/:filename", get(serve_service_image))
         .route("/api/admin/services", post(create_admin_service))

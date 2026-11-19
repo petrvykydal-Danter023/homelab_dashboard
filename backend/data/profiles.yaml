@@ -21,7 +21,7 @@ profiles:
   pin_code: '1234'
 - id: prof-linda
   name: Linda
-  location: Jevíčko
+  location: Brno
   avatar_color: soft-pink
   role: Uživatel
   workspace_label: Vykylab
@@ -29,7 +29,7 @@ profiles:
   pin_code: null
 - id: prof-peta
   name: Peťa
-  location: Praha
+  location: Jevíčko
   avatar_color: cyan
   role: Uživatel
   workspace_label: Vykylab
@@ -42,4 +42,4 @@ profiles:
   role: Uživatel
   workspace_label: Vykylab
   is_admin: false
-  pin_code: null
+  pin_code: '1234'

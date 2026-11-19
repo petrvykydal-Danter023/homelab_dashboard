@@ -147,6 +147,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [profDraftColor, setProfDraftColor] = useState(
     selectedProfile?.avatar_color ?? 'cyan'
   );
+  const [profDraftPin, setProfDraftPin] = useState('');
   // Real Docker containers only (excludes profile links)
   const dockerServices = data.services.filter((s) => s.is_docker !== false);
   const [newSvcMode, setNewSvcMode] = useState<'link' | 'container'>('link');
@@ -171,6 +172,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (selectedProfile) {
       setProfDraftName(selectedProfile.name);
       setProfDraftColor(selectedProfile.avatar_color || 'cyan');
+      setProfDraftPin('');
     }
   }, [selectedProfile?.id, selectedProfile?.name, selectedProfile?.avatar_color]);
 
@@ -180,19 +182,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (!selectedProfile || !profDraftName.trim()) return;
     setBusyId(`prof-save-${selectedProfile.id}`);
     try {
+      const payload: Record<string, string> = {
+        name: profDraftName.trim(),
+        avatar_color: profDraftColor.trim() || 'cyan',
+      };
+      if (profDraftPin.trim().length > 0) {
+        payload.pin_code = profDraftPin.trim();
+      }
       const res = await fetch(`/api/profiles/${encodeURIComponent(selectedProfile.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: profDraftName.trim(),
-          avatar_color: profDraftColor.trim() || 'cyan',
-        }),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
+        setProfDraftPin('');
         await onRefresh();
         onShowToast(true, `Profil ${profDraftName.trim()} uložen.`);
       } else {
         onShowToast(false, 'Nepodařilo se uložit profil.');
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleRemoveProfilePin = async () => {
+    if (!selectedProfile) return;
+    setBusyId(`prof-pin-clear-${selectedProfile.id}`);
+    try {
+      const res = await fetch(`/api/profiles/${encodeURIComponent(selectedProfile.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin_code: '' }),
+      });
+      if (res.ok) {
+        setProfDraftPin('');
+        await onRefresh();
+        onShowToast(true, `PIN pro ${selectedProfile.name} odstraněn.`);
       }
     } finally {
       setBusyId(null);
@@ -431,14 +457,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const openDockerLogs = async (svc: HomelabService) => {
     setBusyId(`logs-${svc.id}`);
     try {
-      const targetName = svc.preview_rows[0]?.name || svc.name.toLowerCase();
-      const res = await fetch('/api/admin/exec', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          command: `docker logs --tail 25 ${targetName} 2>&1 || echo "Kontejner '${targetName}' běží (${svc.uptime}) — živé Docker logy jsou dostupné na cílovém Linux hostu."`,
-        }),
-      });
+      const res = await fetch(`/api/docker/logs/${encodeURIComponent(svc.id)}`);
       const json = await res.json();
       setDockerLogModal({
         service: svc,
@@ -630,7 +649,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             type="button"
             onClick={onOpenProfileHub}
             className="hover:scale-[1.04] transition-transform shrink-0"
-            title="Změnit profil"
+            title="Vybrat profil"
           >
             <AvatarBadge profile={profile} />
           </button>
@@ -680,15 +699,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 })}
               </nav>
             </div>
-
-            <button
-              type="button"
-              onClick={onOpenProfileHub}
-              className="px-3.5 py-1.5 rounded-full bg-white/[0.07] hover:bg-white/[0.13] border border-white/[0.1] text-xs font-medium text-white flex items-center gap-1.5 transition-colors shrink-0"
-            >
-              <Users className="w-3.5 h-3.5 text-cyan-300" />
-              <span className="hidden sm:inline">Změnit profil</span>
-            </button>
           </div>
         </header>
 
@@ -1071,6 +1081,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.06] border border-white/[0.08] text-xs text-zinc-200">
                     <Container className="w-3.5 h-3.5 text-cyan-300" />
                     <span className="font-medium">Docker Engine</span>
+                    <span
+                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+                        data.docker_live
+                          ? 'bg-emerald-500/20 text-emerald-300'
+                          : 'bg-white/[0.06] text-zinc-400'
+                      }`}
+                    >
+                      {data.docker_live ? 'Live' : 'Demo'}
+                    </span>
                   </div>
                   <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-400/30">
                     {runningCount}/{dockerServices.length} aktivní
@@ -1976,25 +1995,51 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </span>
                 </div>
 
-                {/* Live Avatar Preview (exact same dashboardOrb sizeClass & glowClass as other tabs) */}
+                {/* Dual Avatar Stage: Main Red Sudo Avatar + Clicked Profile Companion Orb */}
                 <div className="relative z-10 flex flex-col items-center justify-center my-auto py-2 text-center gap-3">
-                  <div
-                    aria-hidden="true"
-                    className={`pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 ${AVATAR_CONFIG.dashboardOrb.glowClass} rounded-full blur-3xl opacity-75 ${previewTheme.glow}`}
-                    style={previewTheme.glowStyle}
-                  />
-
-                  <div className="relative z-20">
-                    <AvatarOrb
-                      profile={previewProfile}
-                      interactive
-                      sizeClass={AVATAR_CONFIG.dashboardOrb.sizeClass}
+                  <div className="relative flex items-center justify-center">
+                    {/* Main Sudo Red Ambient Glow */}
+                    <div
+                      aria-hidden="true"
+                      className={`pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 ${AVATAR_CONFIG.dashboardOrb.glowClass} rounded-full blur-3xl opacity-75 ${getProfileAvatarTheme(profile).glow}`}
+                      style={getProfileAvatarTheme(profile).glowStyle}
                     />
+
+                    {/* Main Red Sudo Avatar (standard dashboardOrb size) */}
+                    <div className="relative z-20 -translate-x-3">
+                      <AvatarOrb
+                        profile={profile}
+                        interactive
+                        sizeClass={AVATAR_CONFIG.dashboardOrb.sizeClass}
+                      />
+                    </div>
+
+                    {/* Selected / Clicked Profile Companion Orb (proportionally scaled) */}
+                    <div
+                      key={previewProfile.id}
+                      className="absolute -bottom-1 -right-6 z-30 w-[84px] h-[84px] rounded-full ring-4 ring-[#121216] bg-[#121216] flex items-center justify-center shadow-[0_14px_30px_rgba(0,0,0,0.8)] transition-all duration-300"
+                    >
+                      <div
+                        aria-hidden="true"
+                        className={`pointer-events-none absolute inset-0 rounded-full blur-xl opacity-65 ${previewTheme.glow}`}
+                        style={previewTheme.glowStyle}
+                      />
+                      <div className="scale-[0.58] origin-center">
+                        <AvatarOrb profile={previewProfile} interactive />
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="relative z-20">
-                    <div className="text-lg font-semibold tracking-tight text-white">
-                      {previewProfile.name}
+                  <div className="relative z-20 pt-1">
+                    <div className="text-lg font-semibold tracking-tight text-white flex items-center justify-center gap-2">
+                      <span>{previewProfile.name}</span>
+                      <span
+                        className="w-2 h-2 rounded-full"
+                        style={{
+                          backgroundColor: previewAccent.hex,
+                          boxShadow: `0 0 10px ${previewAccent.hex}`,
+                        }}
+                      />
                     </div>
                     <div className="text-[11px] text-zinc-400 flex items-center justify-center gap-1.5 mt-0.5">
                       <span>{selectedProfile.role}</span>
@@ -2062,89 +2107,132 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <h2 className="text-sm font-semibold tracking-tight text-white">
-                        Vzhled profilu · {selectedProfile.name}
+                        Vzhled & zabezpečení profilu · {selectedProfile.name}
                       </h2>
                       <p className="text-xs text-zinc-400 mt-0.5">
-                        Uprav jméno a barvu avatara / akcentu profilu
+                        Uprav jméno, barvu avatara / akcentu a volitelný PIN kód
                       </p>
                     </div>
+                    <span
+                      className={`text-[11px] font-medium px-2.5 py-1 rounded-full border shrink-0 flex items-center gap-1.5 ${
+                        selectedProfile.has_pin
+                          ? 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30'
+                          : 'bg-white/[0.04] text-zinc-400 border-white/[0.08]'
+                      }`}
+                    >
+                      <Lock className="w-3 h-3" />
+                      {selectedProfile.has_pin ? 'Chráněno PINem' : 'Bez PINu'}
+                    </span>
                   </div>
 
-                  <form
-                    onSubmit={handleSaveProfileSettings}
-                    className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end"
-                  >
-                    <div className="sm:col-span-5">
-                      <label className="text-[11px] font-medium text-zinc-400 block mb-1.5">
-                        Jméno profilu
-                      </label>
-                      <input
-                        type="text"
-                        value={profDraftName}
-                        onChange={(e) => setProfDraftName(e.target.value)}
-                        placeholder="Jméno profilu"
-                        className="apple-well w-full px-3.5 py-2.5 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-white/25"
-                      />
-                    </div>
-
-                    <div className="sm:col-span-5">
-                      <label className="text-[11px] font-medium text-zinc-400 flex items-center gap-1.5 mb-1.5">
-                        <Palette className="w-3.5 h-3.5" />
-                        Barva avatara / accent
-                      </label>
-                      <div className="apple-well px-3 py-2 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {AVATAR_COLOR_OPTIONS.map((opt) => {
-                            const swatchAccent = getProfileAccentColor({
-                              id: selectedProfile.id,
-                              name: selectedProfile.name,
-                              avatar_color: opt.id,
-                            });
-                            const selected = profDraftColor === opt.id;
-                            return (
-                              <button
-                                key={opt.id}
-                                type="button"
-                                title={opt.label}
-                                onClick={() => handleQuickColorSelect(opt.id)}
-                                className={`w-6 h-6 rounded-full transition-transform ${
-                                  selected
-                                    ? 'scale-110 ring-2 ring-white ring-offset-2 ring-offset-[#0f0f12]'
-                                    : 'hover:scale-105 opacity-80 hover:opacity-100'
-                                }`}
-                                style={{ backgroundColor: swatchAccent.hex }}
-                              />
-                            );
-                          })}
-                        </div>
-                        <label
-                          title="Vlastní barva (HEX)"
-                          className="relative flex items-center gap-1.5 pl-2 border-l border-white/[0.08] cursor-pointer shrink-0"
-                        >
-                          <input
-                            type="color"
-                            value={previewAccent.hex}
-                            onChange={(e) => setProfDraftColor(e.target.value)}
-                            className="w-6 h-6 rounded-full bg-transparent border-0 cursor-pointer p-0"
-                          />
-                          <span className="text-[10px] font-mono text-zinc-400 hidden xl:inline">
-                            {previewAccent.hex}
-                          </span>
+                  <form onSubmit={handleSaveProfileSettings} className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                      <div className="sm:col-span-5">
+                        <label className="text-[11px] font-medium text-zinc-400 block mb-1.5">
+                          Jméno profilu
                         </label>
+                        <input
+                          type="text"
+                          value={profDraftName}
+                          onChange={(e) => setProfDraftName(e.target.value)}
+                          placeholder="Jméno profilu"
+                          className="apple-well w-full px-3.5 py-2.5 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-white/25"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-7">
+                        <label className="text-[11px] font-medium text-zinc-400 flex items-center gap-1.5 mb-1.5">
+                          <Palette className="w-3.5 h-3.5" />
+                          Barva avatara / accent
+                        </label>
+                        <div className="apple-well px-3 py-2 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {AVATAR_COLOR_OPTIONS.map((opt) => {
+                              const swatchAccent = getProfileAccentColor({
+                                id: selectedProfile.id,
+                                name: selectedProfile.name,
+                                avatar_color: opt.id,
+                              });
+                              const selected = profDraftColor === opt.id;
+                              return (
+                                <button
+                                  key={opt.id}
+                                  type="button"
+                                  title={opt.label}
+                                  onClick={() => handleQuickColorSelect(opt.id)}
+                                  className={`w-6 h-6 rounded-full transition-transform ${
+                                    selected
+                                      ? 'scale-110 ring-2 ring-white ring-offset-2 ring-offset-[#0f0f12]'
+                                      : 'hover:scale-105 opacity-80 hover:opacity-100'
+                                  }`}
+                                  style={{ backgroundColor: swatchAccent.hex }}
+                                />
+                              );
+                            })}
+                          </div>
+                          <label
+                            title="Vlastní barva (HEX)"
+                            className="relative flex items-center gap-1.5 pl-2 border-l border-white/[0.08] cursor-pointer shrink-0"
+                          >
+                            <input
+                              type="color"
+                              value={previewAccent.hex}
+                              onChange={(e) => setProfDraftColor(e.target.value)}
+                              className="w-6 h-6 rounded-full bg-transparent border-0 cursor-pointer p-0"
+                            />
+                            <span className="text-[10px] font-mono text-zinc-400 hidden xl:inline">
+                              {previewAccent.hex}
+                            </span>
+                          </label>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="sm:col-span-2">
-                      <button
-                        type="submit"
-                        disabled={
-                          !profDraftName.trim() ||
-                          busyId === `prof-save-${selectedProfile.id}`
-                        }
-                        className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-zinc-200 text-zinc-950 text-xs font-semibold disabled:opacity-40 transition-colors"
-                      >
-                        Uložit
-                      </button>
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                      <div className="sm:col-span-7">
+                        <label className="text-[11px] font-medium text-zinc-400 flex items-center gap-1.5 mb-1.5">
+                          <Lock className="w-3.5 h-3.5" />
+                          Volitelný PIN kód (čísla, max 8)
+                        </label>
+                        <input
+                          type="password"
+                          inputMode="numeric"
+                          maxLength={8}
+                          value={profDraftPin}
+                          onChange={(e) =>
+                            setProfDraftPin(e.target.value.replace(/\D/g, '').slice(0, 8))
+                          }
+                          placeholder={
+                            selectedProfile.has_pin
+                              ? 'Zadej nový PIN pro změnu…'
+                              : 'Nastavit PIN (nepovinné)…'
+                          }
+                          className="apple-well w-full px-3.5 py-2.5 text-xs font-mono tracking-widest text-white placeholder:text-zinc-500 placeholder:tracking-normal placeholder:font-sans outline-none focus:border-white/25"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-5 flex items-center gap-2">
+                        {selectedProfile.has_pin && (
+                          <button
+                            type="button"
+                            onClick={handleRemoveProfilePin}
+                            disabled={busyId === `prof-pin-clear-${selectedProfile.id}`}
+                            className="py-2.5 px-3 rounded-xl bg-white/[0.06] hover:bg-rose-500/15 border border-white/[0.08] hover:border-rose-400/30 text-xs font-medium text-zinc-300 hover:text-rose-300 transition-colors shrink-0"
+                          >
+                            Odebrat PIN
+                          </button>
+                        )}
+                        <button
+                          type="submit"
+                          disabled={
+                            !profDraftName.trim() ||
+                            busyId === `prof-save-${selectedProfile.id}`
+                          }
+                          className="flex-1 py-2.5 px-4 rounded-xl bg-white hover:bg-zinc-200 text-zinc-950 text-xs font-semibold disabled:opacity-40 transition-colors"
+                        >
+                          Uložit
+                        </button>
+                      </div>
                     </div>
                   </form>
                 </section>

@@ -149,6 +149,7 @@ export interface DashboardResponse {
   system_status_text: string;
   active_profile: UserProfile;
   profiles: UserProfile[];
+  docker_live?: boolean;
   services: HomelabService[];
   events: SystemEvent[];
   uploads: UploadedFileInfo[];
