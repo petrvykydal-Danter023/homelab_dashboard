@@ -1,5 +1,5 @@
 {
-  "active_profile_id": "prof-sudo",
+  "active_profile_id": "prof-mamka",
   "profiles": [
     {
       "id": "prof-tata",
@@ -25,14 +25,6 @@
       ],
       "shortcuts": [
         {
-          "id": "sc-dashboard",
-          "label": "Portainer",
-          "category": "service",
-          "kind": "link",
-          "target": "https://portainer.vykylab.local",
-          "icon": "dashboard"
-        },
-        {
           "id": "sc-containers",
           "label": "Docker ps",
           "category": "service",
@@ -41,36 +33,12 @@
           "icon": "table"
         },
         {
-          "id": "sc-adguard",
-          "label": "AdGuard DNS",
-          "category": "service",
-          "kind": "link",
-          "target": "https://dns.vykylab.local",
-          "icon": "shield"
-        },
-        {
           "id": "sc-disk",
           "label": "Kontrola disků",
           "category": "service",
           "kind": "script",
           "target": "df -h /",
           "icon": "terminal"
-        },
-        {
-          "id": "sc-uptime",
-          "label": "Uptime & Load",
-          "category": "account",
-          "kind": "script",
-          "target": "uptime",
-          "icon": "user"
-        },
-        {
-          "id": "sc-backup",
-          "label": "Backup Sync",
-          "category": "account",
-          "kind": "script",
-          "target": "echo 'Snapshot ověřen: 3-2-1 OK'",
-          "icon": "settings"
         }
       ]
     },
@@ -101,14 +69,6 @@
       ],
       "shortcuts": [
         {
-          "id": "sc-sudo-portainer",
-          "label": "Portainer",
-          "category": "service",
-          "kind": "link",
-          "target": "https://portainer.vykylab.local",
-          "icon": "dashboard"
-        },
-        {
           "id": "sc-sudo-docker",
           "label": "Docker ps",
           "category": "service",
@@ -123,30 +83,6 @@
           "kind": "script",
           "target": "df -h /",
           "icon": "terminal"
-        },
-        {
-          "id": "sc-sudo-adguard",
-          "label": "AdGuard DNS",
-          "category": "service",
-          "kind": "link",
-          "target": "https://dns.vykylab.local",
-          "icon": "shield"
-        },
-        {
-          "id": "sc-sudo-top",
-          "label": "Uptime & Load",
-          "category": "account",
-          "kind": "script",
-          "target": "uptime",
-          "icon": "user"
-        },
-        {
-          "id": "sc-sudo-net",
-          "label": "Síťové porty",
-          "category": "account",
-          "kind": "script",
-          "target": "lsof -i -P -n | head -n 15 || netstat -an | head -n 15",
-          "icon": "settings"
         }
       ]
     },
@@ -174,14 +110,6 @@
       ],
       "shortcuts": [
         {
-          "id": "sc-dashboard",
-          "label": "Portainer",
-          "category": "service",
-          "kind": "link",
-          "target": "https://portainer.vykylab.local",
-          "icon": "dashboard"
-        },
-        {
           "id": "sc-containers",
           "label": "Docker ps",
           "category": "service",
@@ -190,36 +118,12 @@
           "icon": "table"
         },
         {
-          "id": "sc-adguard",
-          "label": "AdGuard DNS",
-          "category": "service",
-          "kind": "link",
-          "target": "https://dns.vykylab.local",
-          "icon": "shield"
-        },
-        {
           "id": "sc-disk",
           "label": "Kontrola disků",
           "category": "service",
           "kind": "script",
           "target": "df -h /",
           "icon": "terminal"
-        },
-        {
-          "id": "sc-uptime",
-          "label": "Uptime & Load",
-          "category": "account",
-          "kind": "script",
-          "target": "uptime",
-          "icon": "user"
-        },
-        {
-          "id": "sc-backup",
-          "label": "Backup Sync",
-          "category": "account",
-          "kind": "script",
-          "target": "echo 'Snapshot ověřen: 3-2-1 OK'",
-          "icon": "settings"
         }
       ]
     },
@@ -262,14 +166,6 @@
       ],
       "shortcuts": [
         {
-          "id": "sc-dashboard",
-          "label": "Portainer",
-          "category": "service",
-          "kind": "link",
-          "target": "https://portainer.vykylab.local",
-          "icon": "dashboard"
-        },
-        {
           "id": "sc-containers",
           "label": "Docker ps",
           "category": "service",
@@ -278,36 +174,12 @@
           "icon": "table"
         },
         {
-          "id": "sc-adguard",
-          "label": "AdGuard DNS",
-          "category": "service",
-          "kind": "link",
-          "target": "https://dns.vykylab.local",
-          "icon": "shield"
-        },
-        {
           "id": "sc-disk",
           "label": "Kontrola disků",
           "category": "service",
           "kind": "script",
           "target": "df -h /",
           "icon": "terminal"
-        },
-        {
-          "id": "sc-uptime",
-          "label": "Uptime & Load",
-          "category": "account",
-          "kind": "script",
-          "target": "uptime",
-          "icon": "user"
-        },
-        {
-          "id": "sc-backup",
-          "label": "Backup Sync",
-          "category": "account",
-          "kind": "script",
-          "target": "echo 'Snapshot ověřen: 3-2-1 OK'",
-          "icon": "settings"
         }
       ]
     }
@@ -323,29 +195,7 @@
       "icon": "container",
       "image_url": null,
       "is_docker": true,
-      "container_name": null,
-      "preview_rows": [
-        {
-          "name": "traefik-proxy",
-          "status": "running",
-          "meta": "v3.1 · 18d"
-        },
-        {
-          "name": "adguard-home",
-          "status": "running",
-          "meta": "v0.107 · 18d"
-        },
-        {
-          "name": "immich-server",
-          "status": "running",
-          "meta": "v1.119 · 12d"
-        },
-        {
-          "name": "vaultwarden",
-          "status": "running",
-          "meta": "v1.32 · 18d"
-        }
-      ]
+      "container_name": null
     },
     {
       "id": "svc-adguard",
@@ -357,29 +207,7 @@
       "icon": "shield",
       "image_url": null,
       "is_docker": true,
-      "container_name": null,
-      "preview_rows": [
-        {
-          "name": "Dotazy (24h)",
-          "status": "active",
-          "meta": "24 810"
-        },
-        {
-          "name": "Blokováno",
-          "status": "active",
-          "meta": "18.4 %"
-        },
-        {
-          "name": "Prům. odezva",
-          "status": "active",
-          "meta": "4 ms"
-        },
-        {
-          "name": "Upstream DNS",
-          "status": "active",
-          "meta": "Cloudflare DoH"
-        }
-      ]
+      "container_name": null
     },
     {
       "id": "svc-immich",
@@ -391,29 +219,7 @@
       "icon": "image",
       "image_url": null,
       "is_docker": true,
-      "container_name": null,
-      "preview_rows": [
-        {
-          "name": "immich-ml",
-          "status": "running",
-          "meta": "GPU Ready"
-        },
-        {
-          "name": "immich-postgres",
-          "status": "running",
-          "meta": "pgvector · 12d"
-        },
-        {
-          "name": "Knihovna",
-          "status": "active",
-          "meta": "42 180 fotek"
-        },
-        {
-          "name": "Poslední záloha",
-          "status": "active",
-          "meta": "Dnes 03:00"
-        }
-      ]
+      "container_name": null
     },
     {
       "id": "svc-traefik",
@@ -425,24 +231,7 @@
       "icon": "layers",
       "image_url": null,
       "is_docker": true,
-      "container_name": null,
-      "preview_rows": [
-        {
-          "name": "Routery",
-          "status": "active",
-          "meta": "14 aktivních"
-        },
-        {
-          "name": "TLS Certifikáty",
-          "status": "active",
-          "meta": "Let's Encrypt OK"
-        },
-        {
-          "name": "Entrypointy",
-          "status": "active",
-          "meta": ":80 / :443"
-        }
-      ]
+      "container_name": null
     },
     {
       "id": "svc-vaultwarden",
@@ -454,24 +243,7 @@
       "icon": "lock",
       "image_url": null,
       "is_docker": true,
-      "container_name": null,
-      "preview_rows": [
-        {
-          "name": "Trezor",
-          "status": "active",
-          "meta": "Šifrováno"
-        },
-        {
-          "name": "Záloha DB",
-          "status": "active",
-          "meta": "Dnes 02:30"
-        },
-        {
-          "name": "WebSocket",
-          "status": "running",
-          "meta": "Synchronizováno"
-        }
-      ]
+      "container_name": null
     },
     {
       "id": "svc-jellyfin",
@@ -483,24 +255,7 @@
       "icon": "zap",
       "image_url": null,
       "is_docker": true,
-      "container_name": null,
-      "preview_rows": [
-        {
-          "name": "Transkódování",
-          "status": "active",
-          "meta": "HW VA-API"
-        },
-        {
-          "name": "Filmy & Seriály",
-          "status": "active",
-          "meta": "1.4 TB"
-        },
-        {
-          "name": "Přehrávání",
-          "status": "active",
-          "meta": "0 aktivních"
-        }
-      ]
+      "container_name": null
     },
     {
       "id": "svc-homeassistant",
@@ -512,24 +267,7 @@
       "icon": "zap",
       "image_url": null,
       "is_docker": true,
-      "container_name": null,
-      "preview_rows": [
-        {
-          "name": "Zigbee2MQTT",
-          "status": "running",
-          "meta": "28 zařízení"
-        },
-        {
-          "name": "Automatizace",
-          "status": "active",
-          "meta": "19 aktivních"
-        },
-        {
-          "name": "Teplota doma",
-          "status": "active",
-          "meta": "21.8 °C"
-        }
-      ]
+      "container_name": null
     },
     {
       "id": "svc-grafana",
@@ -541,38 +279,7 @@
       "icon": "activity",
       "image_url": null,
       "is_docker": true,
-      "container_name": null,
-      "preview_rows": [
-        {
-          "name": "Prometheus",
-          "status": "stopped",
-          "meta": "Pozastaveno"
-        },
-        {
-          "name": "Dashboardy",
-          "status": "active",
-          "meta": "6 šablon"
-        }
-      ]
-    },
-    {
-      "id": "svc-d247ad49",
-      "name": "traefik proxy 2",
-      "subtitle": "Traefik Proxy",
-      "status": "running",
-      "uptime": "Up (healthy) · 18d",
-      "url": "About:Blank",
-      "icon": "container",
-      "image_url": null,
-      "is_docker": false,
-      "container_name": "Traefik Proxy",
-      "preview_rows": [
-        {
-          "name": "Traefik Proxy",
-          "status": "running",
-          "meta": "About:Blank"
-        }
-      ]
+      "container_name": null
     },
     {
       "id": "svc-45e53205",
@@ -584,14 +291,7 @@
       "icon": "layers",
       "image_url": null,
       "is_docker": false,
-      "container_name": null,
-      "preview_rows": [
-        {
-          "name": "Youtube",
-          "status": "running",
-          "meta": "www.youtube.com/"
-        }
-      ]
+      "container_name": null
     },
     {
       "id": "svc-cad4c4ee",
@@ -603,301 +303,12 @@
       "icon": "server",
       "image_url": null,
       "is_docker": false,
-      "container_name": "Grafana",
-      "preview_rows": [
-        {
-          "name": "Grafana",
-          "status": "stopped",
-          "meta": "grafana.com"
-        }
-      ]
-    }
-  ],
-  "events": [
-    {
-      "id": "evt-0e90691d",
-      "timestamp": "11:29",
-      "level": "info",
-      "source": "Grafana",
-      "message": "Akce 'start' provedena na službě Grafana."
-    },
-    {
-      "id": "evt-06bc13ea",
-      "timestamp": "11:29",
-      "level": "info",
-      "source": "Traefik Proxy",
-      "message": "Akce 'restart' provedena na službě Traefik Proxy."
-    },
-    {
-      "id": "evt-9c84e3d5",
-      "timestamp": "11:19",
-      "level": "info",
-      "source": "Grafana",
-      "message": "Akce 'stop' provedena na službě Grafana."
-    },
-    {
-      "id": "evt-51bf578a",
-      "timestamp": "10:02",
-      "level": "info",
-      "source": "Grafana",
-      "message": "Akce 'start' provedena na službě Grafana."
-    },
-    {
-      "id": "evt-5271b330",
-      "timestamp": "10:02",
-      "level": "info",
-      "source": "Home Assistant",
-      "message": "Akce 'start' provedena na službě Home Assistant."
-    },
-    {
-      "id": "evt-3ccdbc36",
-      "timestamp": "10:02",
-      "level": "info",
-      "source": "Jellyfin",
-      "message": "Akce 'start' provedena na službě Jellyfin."
-    },
-    {
-      "id": "evt-fa64b960",
-      "timestamp": "10:02",
-      "level": "info",
-      "source": "Vaultwarden",
-      "message": "Akce 'start' provedena na službě Vaultwarden."
-    },
-    {
-      "id": "evt-325e9df1",
-      "timestamp": "10:01",
-      "level": "info",
-      "source": "Grafana",
-      "message": "Akce 'stop' provedena na službě Grafana."
-    },
-    {
-      "id": "evt-ea180e8c",
-      "timestamp": "10:01",
-      "level": "info",
-      "source": "Jellyfin",
-      "message": "Akce 'stop' provedena na službě Jellyfin."
-    },
-    {
-      "id": "evt-ff2e1ab6",
-      "timestamp": "10:01",
-      "level": "info",
-      "source": "Home Assistant",
-      "message": "Akce 'stop' provedena na službě Home Assistant."
-    },
-    {
-      "id": "evt-d92d5224",
-      "timestamp": "10:01",
-      "level": "info",
-      "source": "Vaultwarden",
-      "message": "Akce 'stop' provedena na službě Vaultwarden."
-    },
-    {
-      "id": "evt-e9418c69",
-      "timestamp": "10:01",
-      "level": "info",
-      "source": "Grafana",
-      "message": "Akce 'start' provedena na službě Grafana."
-    },
-    {
-      "id": "evt-c2f7bf16",
-      "timestamp": "09:55",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-79254e10",
-      "timestamp": "09:55",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-4403edd7",
-      "timestamp": "07:54",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-9c6448c1",
-      "timestamp": "00:29",
-      "level": "info",
-      "source": "Portainer",
-      "message": "Akce 'start' provedena na službě Portainer."
-    },
-    {
-      "id": "evt-c8b24bd9",
-      "timestamp": "00:28",
-      "level": "info",
-      "source": "Portainer",
-      "message": "Akce 'stop' provedena na službě Portainer."
-    },
-    {
-      "id": "evt-00312c53",
-      "timestamp": "00:28",
-      "level": "info",
-      "source": "Portainer",
-      "message": "Akce 'restart' provedena na službě Portainer."
-    },
-    {
-      "id": "evt-e01d49a9",
-      "timestamp": "00:28",
-      "level": "info",
-      "source": "Portainer",
-      "message": "Akce 'restart' provedena na službě Portainer."
-    },
-    {
-      "id": "evt-d5b8c6b5",
-      "timestamp": "00:28",
-      "level": "info",
-      "source": "Portainer",
-      "message": "Akce 'restart' provedena na službě Portainer."
-    },
-    {
-      "id": "evt-4e62d263",
-      "timestamp": "00:28",
-      "level": "info",
-      "source": "Portainer",
-      "message": "Akce 'restart' provedena na službě Portainer."
-    },
-    {
-      "id": "evt-319c08e7",
-      "timestamp": "00:28",
-      "level": "info",
-      "source": "Portainer",
-      "message": "Akce 'restart' provedena na službě Portainer."
-    },
-    {
-      "id": "evt-3730e077",
-      "timestamp": "23:54",
-      "level": "info",
-      "source": "AdGuard Home",
-      "message": "Akce 'start' provedena na službě AdGuard Home."
-    },
-    {
-      "id": "evt-9fc40387",
-      "timestamp": "23:54",
-      "level": "info",
-      "source": "AdGuard Home",
-      "message": "Akce 'stop' provedena na službě AdGuard Home."
-    },
-    {
-      "id": "evt-ce71db51",
-      "timestamp": "23:35",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-da455452",
-      "timestamp": "17:10",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-ba7cbdfe",
-      "timestamp": "14:59",
-      "level": "info",
-      "source": "Portainer",
-      "message": "Akce 'start' provedena na službě Portainer."
-    },
-    {
-      "id": "evt-b750ed37",
-      "timestamp": "14:45",
-      "level": "info",
-      "source": "Portainer",
-      "message": "Akce 'stop' provedena na službě Portainer."
-    },
-    {
-      "id": "evt-5042b935",
-      "timestamp": "14:45",
-      "level": "info",
-      "source": "Portainer",
-      "message": "Akce 'start' provedena na službě Portainer."
-    },
-    {
-      "id": "evt-04f6bd4f",
-      "timestamp": "14:45",
-      "level": "info",
-      "source": "Portainer",
-      "message": "Akce 'stop' provedena na službě Portainer."
-    },
-    {
-      "id": "evt-d9e2918d",
-      "timestamp": "14:44",
-      "level": "info",
-      "source": "Portainer",
-      "message": "Akce 'start' provedena na službě Portainer."
-    },
-    {
-      "id": "evt-5880b7cf",
-      "timestamp": "14:44",
-      "level": "info",
-      "source": "Portainer",
-      "message": "Akce 'stop' provedena na službě Portainer."
-    },
-    {
-      "id": "evt-d2aa4124",
-      "timestamp": "14:43",
-      "level": "info",
-      "source": "AdGuard Home",
-      "message": "Akce 'restart' provedena na službě AdGuard Home."
-    },
-    {
-      "id": "evt-39d63fc2",
-      "timestamp": "14:43",
-      "level": "info",
-      "source": "AdGuard Home",
-      "message": "Akce 'restart' provedena na službě AdGuard Home."
-    },
-    {
-      "id": "evt-62004884",
-      "timestamp": "14:43",
-      "level": "info",
-      "source": "AdGuard Home",
-      "message": "Akce 'restart' provedena na službě AdGuard Home."
-    },
-    {
-      "id": "evt-59db863f",
-      "timestamp": "14:28",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-d2d1e47e",
-      "timestamp": "14:26",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-f8145f78",
-      "timestamp": "14:26",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-d924bb94",
-      "timestamp": "14:26",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
-    },
-    {
-      "id": "evt-d8673326",
-      "timestamp": "14:14",
-      "level": "ok",
-      "source": "Kontrola systému",
-      "message": "Kontrola dokončena: CPU, disky a všechny služby v pořádku."
+      "container_name": "Grafana"
     }
   ],
   "uploads": [],
   "ssh": {
-    "active_connection_id": "ssh-105a6034",
+    "active_connection_id": "ssh-local",
     "connections": [
       {
         "id": "ssh-local",
@@ -907,15 +318,6 @@
         "port": 22,
         "mode": "local",
         "identity_file": null
-      },
-      {
-        "id": "ssh-105a6034",
-        "name": "dydyd",
-        "user": "root",
-        "host": "dy",
-        "port": 22,
-        "mode": "ssh",
-        "identity_file": "dy"
       }
     ],
     "shortcuts": [
@@ -938,19 +340,29 @@
         "id": "sh-ps",
         "label": "Top procesy",
         "command": "ps aux | head -n 12"
-      },
-      {
-        "id": "sh-a2dc23a2",
-        "label": "dad",
-        "command": "add"
-      },
-      {
-        "id": "sh-97b9ead9",
-        "label": "fs",
-        "command": "fsfsf"
       }
     ]
   },
-  "last_checked": "09:55",
+  "noticeboard": [
+    {
+      "id": "note-welcome",
+      "title": "Vykylab běží bez problémů",
+      "message": "Všechny domácí služby jsou online. Kdyby něco nešlo, mrkni sem na případnou plánovanou údržbu.",
+      "author": "Sudo",
+      "tag": "Info",
+      "pinned": true,
+      "timestamp": "19.11. · 13:51"
+    },
+    {
+      "id": "note-photos",
+      "title": "Záloha fotek na Immichu",
+      "message": "Zálohování fotek z mobilů jede automaticky v noci po připojení na domácí Wi-Fi.",
+      "author": "Sudo",
+      "tag": "Oznámení",
+      "pinned": false,
+      "timestamp": "Dnes · 08:30"
+    }
+  ],
+  "last_checked": "14:51",
   "weather_summary": "7°C bez větru"
 }

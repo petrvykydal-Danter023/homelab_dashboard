@@ -24,6 +24,7 @@ import {
   Image as ImageIcon,
   Layers,
   Lock,
+  Pin,
   Plus,
   RefreshCw,
   Search,
@@ -312,7 +313,7 @@ export default function App() {
   // Modals
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [shortcutModalOpen, setShortcutModalOpen] = useState(false);
-  const [eventsModalOpen, setEventsModalOpen] = useState(false);
+  const [noticeboardModalOpen, setNoticeboardModalOpen] = useState(false);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [scriptOutputModal, setScriptOutputModal] = useState<{
     title: string;
@@ -323,7 +324,6 @@ export default function App() {
   // Profile form state
   const [editName, setEditName] = useState('');
   const [editWorkspace, setEditWorkspace] = useState('');
-  const [editRole, setEditRole] = useState('');
   const [editLocation, setEditLocation] = useState('');
   const [editAvatarColor, setEditAvatarColor] = useState('cyan');
 
@@ -364,7 +364,6 @@ export default function App() {
     if (data?.active_profile) {
       setEditName(data.active_profile.name);
       setEditWorkspace(data.active_profile.workspace_label);
-      setEditRole(data.active_profile.role);
       setEditLocation(data.active_profile.location);
       setEditAvatarColor(data.active_profile.avatar_color || 'cyan');
     }
@@ -372,12 +371,6 @@ export default function App() {
 
   const handleShortcutClick = async (sc: UserShortcut) => {
     setActiveShortcutId(sc.id);
-    if (sc.kind === 'link') {
-      window.open(sc.target, '_blank', 'noopener,noreferrer');
-      showToast(true, `Otevřeno: ${sc.label}`);
-      return;
-    }
-
     setBusyId(sc.id);
     try {
       const res = await fetch(`/api/scripts/${encodeURIComponent(sc.id)}/run`, {
@@ -415,7 +408,7 @@ export default function App() {
   const handleSystemCheck = async () => {
     setBusyId('sys-check');
     try {
-      const res = await fetch('/api/events/check', { method: 'POST' });
+      const res = await fetch('/api/system/check', { method: 'POST' });
       const json = await res.json();
       if (json.dashboard) setData(json.dashboard);
       showToast(true, 'Kontrola systému dokončena.');
@@ -435,7 +428,6 @@ export default function App() {
         body: JSON.stringify({
           name: editName,
           workspace_label: editWorkspace,
-          role: editRole,
           location: editLocation,
           avatar_color: editAvatarColor,
         }),
@@ -466,7 +458,6 @@ export default function App() {
         return false;
       }
       if (json.dashboard) setData(json.dashboard);
-      window.localStorage.setItem('vykylab_profile_selected', id);
       setSearchQuery('');
       setServiceSearch(null);
       if (enterDashboard) {
@@ -616,7 +607,7 @@ export default function App() {
         pinTargetProfile ||
         profileModalOpen ||
         shortcutModalOpen ||
-        eventsModalOpen ||
+        noticeboardModalOpen ||
         uploadModalOpen ||
         scriptOutputModal
       ) {
@@ -647,7 +638,7 @@ export default function App() {
     pinTargetProfile,
     profileModalOpen,
     shortcutModalOpen,
-    eventsModalOpen,
+    noticeboardModalOpen,
     uploadModalOpen,
     scriptOutputModal,
   ]);
@@ -804,10 +795,11 @@ export default function App() {
     });
   }, [serviceOrderKey]);
 
-  // Search only affects services — shortcuts stay intact
-  const filteredShortcuts = useMemo(() => {
+  const shellShortcuts = useMemo(() => {
     if (!data) return [];
-    return data.active_profile.shortcuts;
+    return data.active_profile.shortcuts.filter(
+      (s) => s.category !== 'account' && s.kind === 'script'
+    );
   }, [data]);
 
   if (loading || !data) {
@@ -824,9 +816,6 @@ export default function App() {
   const profile = data.active_profile;
   const profileTheme = getProfileAvatarTheme(profile);
   const profileAccent = getProfileAccentColor(profile);
-  const shellShortcuts = filteredShortcuts.filter(
-    (s) => s.category !== 'account' && s.kind === 'script'
-  );
 
   const pinDotCount = Math.max(4, pinInput.length);
   const handleKeypadDigit = (digit: string) => {
@@ -1251,10 +1240,21 @@ export default function App() {
 
                 <button
                   type="button"
-                  onClick={() => setEventsModalOpen(true)}
-                  className="pointer-events-auto inline-flex items-center gap-1.5 text-xs font-medium text-zinc-300 hover:text-white transition-colors"
+                  onClick={() => setNoticeboardModalOpen(true)}
+                  className="pointer-events-auto inline-flex items-center gap-2 text-xs font-medium text-zinc-300 hover:text-white transition-colors"
                 >
-                  <span>Události</span>
+                  <span>Nástěnka</span>
+                  {(data.noticeboard?.length ?? 0) > 0 && (
+                    <span
+                      className="px-1.5 py-0.5 rounded-full text-[10px] font-mono font-semibold text-white border border-white/[0.12]"
+                      style={{
+                        backgroundColor: `rgba(${profileAccent.rgb}, 0.16)`,
+                        borderColor: `rgba(${profileAccent.rgb}, 0.32)`,
+                      }}
+                    >
+                      {data.noticeboard.length}
+                    </span>
+                  )}
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -1385,7 +1385,7 @@ export default function App() {
                         <div className="absolute inset-0 flex flex-col items-center justify-center">
                           <Zap className="w-3.5 h-3.5 text-emerald-400 mb-0.5" />
                           <span className="text-xl font-semibold font-mono tracking-tight text-white leading-none">
-                            {data.monitoring.tunnel_tx}
+                            {Math.round(Math.min(100, Math.max(1, data.monitoring.cpu_percent)))}%
                           </span>
                           <span className="text-[10px] text-zinc-400 mt-1 leading-tight">
                             CPU
@@ -1784,55 +1784,82 @@ export default function App() {
       )}
 
       {/* ================================================================== */}
-      {/* MODAL: EVENTS                                                      */}
+      {/* MODAL: FAMILY NOTICEBOARD (NÁSTĚNKA)                              */}
       {/* ================================================================== */}
-      {eventsModalOpen && (
+      {noticeboardModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="apple-card w-full max-w-xl p-6 space-y-4 max-h-[82vh] flex flex-col">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold text-white">Události & Kontroly</h2>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleSystemCheck}
-                  disabled={busyId === 'sys-check'}
-                  className="px-3 py-1.5 rounded-full bg-white text-zinc-950 text-xs font-semibold flex items-center gap-1.5"
-                >
-                  <RefreshCw
-                    className={`w-3 h-3 ${busyId === 'sys-check' ? 'animate-spin' : ''}`}
-                  />
-                  Zkontrolovat teď
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEventsModalOpen(false)}
-                  className="p-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+          <div className="apple-card w-full max-w-lg p-6 space-y-4 max-h-[82vh] flex flex-col">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-white">Nástěnka</h2>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Vzkazy a novinky pro {profile.workspace_label}
+                </p>
               </div>
+              <button
+                type="button"
+                onClick={() => setNoticeboardModalOpen(false)}
+                className="p-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            <div className="space-y-2 overflow-y-auto pr-1">
-              {data.events.map((ev) => (
-                <div key={ev.id} className="apple-well p-3 flex items-start justify-between gap-3">
-                  <div className="space-y-0.5 min-w-0">
-                    <div className="flex items-center gap-2 text-[11px]">
-                      <span
-                        className={`w-2 h-2 rounded-full ${ev.level === 'ok'
-                            ? 'bg-emerald-400'
-                            : ev.level === 'warn'
-                              ? 'bg-amber-400'
-                              : 'bg-zinc-400'
-                          }`}
-                      />
-                      <span className="font-semibold text-white">{ev.source}</span>
-                      <span className="font-mono text-zinc-500">{ev.timestamp}</span>
-                    </div>
-                    <p className="text-xs text-zinc-300">{ev.message}</p>
-                  </div>
+            <div className="space-y-2.5 overflow-y-auto pr-1">
+              {(data.noticeboard ?? []).length === 0 ? (
+                <div className="apple-well p-6 text-center text-xs text-zinc-500">
+                  Zatím tu nejsou žádné vzkazy.
                 </div>
-              ))}
+              ) : (
+                data.noticeboard.map((note) => (
+                  <div
+                    key={note.id}
+                    style={
+                      note.pinned
+                        ? {
+                            borderColor: `rgba(${profileAccent.rgb}, 0.3)`,
+                            boxShadow: `inset 0 0 18px rgba(${profileAccent.rgb}, 0.06)`,
+                          }
+                        : undefined
+                    }
+                    className="apple-well p-4 space-y-2 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {note.pinned && (
+                          <Pin
+                            className="w-3.5 h-3.5 shrink-0"
+                            style={{ color: profileAccent.hex }}
+                          />
+                        )}
+                        <h3 className="text-sm font-semibold text-white truncate">
+                          {note.title}
+                        </h3>
+                      </div>
+                      <span
+                        className={`text-[10px] font-medium px-2 py-0.5 rounded-full border shrink-0 ${
+                          note.tag === 'Údržba'
+                            ? 'bg-amber-500/15 text-amber-300 border-amber-400/30'
+                            : note.tag === 'Info'
+                              ? 'bg-cyan-500/10 text-cyan-300 border-cyan-400/25'
+                              : 'bg-white/[0.06] text-zinc-300 border-white/[0.1]'
+                        }`}
+                      >
+                        {note.tag}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                      {note.message}
+                    </p>
+
+                    <div className="flex items-center justify-between text-[10px] text-zinc-500 pt-1">
+                      <span>Od: {note.author}</span>
+                      <span className="font-mono">{note.timestamp}</span>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

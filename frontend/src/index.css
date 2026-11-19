@@ -9,7 +9,6 @@
 :root {
   --bg-canvas: #09090b;
   --bg-surface: rgba(24, 24, 27, 0.72);
-  --bg-surface-elevated: rgba(32, 32, 36, 0.82);
   --bg-well: rgba(15, 15, 18, 0.85);
   --border-hairline: rgba(255, 255, 255, 0.08);
   --border-hover: rgba(255, 255, 255, 0.16);

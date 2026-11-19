@@ -24,12 +24,6 @@ export interface UserProfile {
   shortcuts: UserShortcut[];
 }
 
-export interface ServicePreviewRow {
-  name: string;
-  status: string;
-  meta: string;
-}
-
 export interface HomelabService {
   id: string;
   name: string;
@@ -41,15 +35,16 @@ export interface HomelabService {
   image_url?: string | null;
   is_docker: boolean;
   container_name?: string | null;
-  preview_rows: ServicePreviewRow[];
 }
 
-export interface SystemEvent {
+export interface NoticeboardItem {
   id: string;
-  timestamp: string;
-  level: string;
-  source: string;
+  title: string;
   message: string;
+  author: string;
+  tag: string;
+  pinned: boolean;
+  timestamp: string;
 }
 
 export interface UploadedFileInfo {
@@ -91,7 +86,6 @@ export interface SystemMonitoring {
   process_count: number;
   uptime_formatted: string;
   tunnel_label: string;
-  tunnel_tx: string;
   connected_to: string;
 }
 
@@ -122,8 +116,6 @@ export interface ProcessInfo {
   name: string;
   cpu_percent: number;
   memory_mb: number;
-  disk_read_mb: number;
-  disk_write_mb: number;
   status: string;
   cmd: string;
   run_time_secs: number;
@@ -151,7 +143,7 @@ export interface DashboardResponse {
   profiles: UserProfile[];
   docker_live?: boolean;
   services: HomelabService[];
-  events: SystemEvent[];
+  noticeboard: NoticeboardItem[];
   uploads: UploadedFileInfo[];
   ssh: SshConfig;
   monitoring: SystemMonitoring;

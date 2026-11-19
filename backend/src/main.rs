@@ -130,13 +130,6 @@ fn default_workspace_label() -> String {
     "Vykylab".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServicePreviewRow {
-    pub name: String,
-    pub status: String,
-    pub meta: String,
-}
-
 fn default_true() -> bool {
     true
 }
@@ -156,16 +149,6 @@ pub struct HomelabService {
     pub is_docker: bool,
     #[serde(default)]
     pub container_name: Option<String>,
-    pub preview_rows: Vec<ServicePreviewRow>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SystemEvent {
-    pub id: String,
-    pub timestamp: String,
-    pub level: String, // "ok" | "info" | "warn" | "error"
-    pub source: String,
-    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -239,14 +222,50 @@ fn default_ssh_config() -> SshConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NoticeboardItem {
+    pub id: String,
+    pub title: String,
+    pub message: String,
+    pub author: String,
+    pub tag: String, // "Oznámení" | "Info" | "Údržba"
+    #[serde(default)]
+    pub pinned: bool,
+    pub timestamp: String,
+}
+
+fn default_noticeboard() -> Vec<NoticeboardItem> {
+    vec![
+        NoticeboardItem {
+            id: "note-welcome".to_string(),
+            title: "Vykylab běží bez problémů".to_string(),
+            message: "Všechny domácí služby jsou online. Kdyby něco nešlo, mrkni sem na případnou plánovanou údržbu.".to_string(),
+            author: "Sudo".to_string(),
+            tag: "Info".to_string(),
+            pinned: true,
+            timestamp: Local::now().format("%-d.%-m. · %H:%M").to_string(),
+        },
+        NoticeboardItem {
+            id: "note-photos".to_string(),
+            title: "Záloha fotek na Immichu".to_string(),
+            message: "Zálohování fotek z mobilů jede automaticky v noci po připojení na domácí Wi-Fi.".to_string(),
+            author: "Sudo".to_string(),
+            tag: "Oznámení".to_string(),
+            pinned: false,
+            timestamp: "Dnes · 08:30".to_string(),
+        },
+    ]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedStore {
     pub active_profile_id: String,
     pub profiles: Vec<UserProfile>,
     pub services: Vec<HomelabService>,
-    pub events: Vec<SystemEvent>,
     pub uploads: Vec<UploadedFileInfo>,
     #[serde(default = "default_ssh_config")]
     pub ssh: SshConfig,
+    #[serde(default = "default_noticeboard")]
+    pub noticeboard: Vec<NoticeboardItem>,
     pub last_checked: String,
     pub weather_summary: String,
 }
@@ -284,7 +303,6 @@ pub struct SystemMonitoring {
     pub process_count: usize,
     pub uptime_formatted: String,
     pub tunnel_label: String,
-    pub tunnel_tx: String,
     pub connected_to: String,
 }
 
@@ -294,8 +312,6 @@ pub struct ProcessInfo {
     pub name: String,
     pub cpu_percent: f32,
     pub memory_mb: f64,
-    pub disk_read_mb: f64,
-    pub disk_write_mb: f64,
     pub status: String,
     pub cmd: String,
     pub run_time_secs: u64,
@@ -312,7 +328,7 @@ pub struct DashboardResponse {
     pub profiles: Vec<PublicUserProfile>,
     pub docker_live: bool,
     pub services: Vec<HomelabService>,
-    pub events: Vec<SystemEvent>,
+    pub noticeboard: Vec<NoticeboardItem>,
     pub uploads: Vec<UploadedFileInfo>,
     pub ssh: SshConfig,
     pub monitoring: SystemMonitoring,
@@ -326,15 +342,6 @@ pub struct DashboardResponse {
 #[derive(Debug, Deserialize)]
 pub struct ActivateProfilePayload {
     pub pin: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CreateProfilePayload {
-    pub name: String,
-    pub workspace_label: Option<String>,
-    pub role: Option<String>,
-    pub location: Option<String>,
-    pub avatar_color: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -371,6 +378,22 @@ pub struct AddShortcutPayload {
 #[derive(Debug, Deserialize)]
 pub struct ServiceActionPayload {
     pub action: String, // "restart" | "start" | "stop"
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateNoticeboardPayload {
+    pub title: String,
+    pub message: String,
+    pub tag: Option<String>,
+    pub pinned: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateNoticeboardPayload {
+    pub title: Option<String>,
+    pub message: Option<String>,
+    pub tag: Option<String>,
+    pub pinned: Option<bool>,
 }
 
 // ============================================================================
@@ -549,10 +572,10 @@ fn save_profiles_yaml(path: &StdPath, profiles: &[UserProfile]) -> std::io::Resu
         })
         .collect();
     let header = "# Konfigurace uživatelských profilů Vykylab Dashboardu\n\
-                  # Barvy avatara (avatar_color): owl-brown | soft-pink | dark-blue | cyan (příp. hex např. \"#c084fc\")\n\
+                  # Barvy avatara (avatar_color): owl-brown | soft-pink | dark-blue | cyan | red (příp. hex např. \"#c084fc\")\n\
                   # Klasický dashboard mají všichni kromě účtu \"sudo\" (is_admin: true).\n\n";
     let body = serde_yaml::to_string(&ProfilesYamlConfig { profiles: entries })
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        .map_err(std::io::Error::other)?;
     fs::write(path, format!("{}{}", header, body))
 }
 
@@ -637,23 +660,6 @@ fn default_extra_services() -> Vec<HomelabService> {
             image_url: None,
             is_docker: true,
             container_name: None,
-            preview_rows: vec![
-                ServicePreviewRow {
-                    name: "Routery".to_string(),
-                    status: "active".to_string(),
-                    meta: "14 aktivních".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "TLS Certifikáty".to_string(),
-                    status: "active".to_string(),
-                    meta: "Let's Encrypt OK".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "Entrypointy".to_string(),
-                    status: "active".to_string(),
-                    meta: ":80 / :443".to_string(),
-                },
-            ],
         },
         HomelabService {
             id: "svc-vaultwarden".to_string(),
@@ -666,23 +672,6 @@ fn default_extra_services() -> Vec<HomelabService> {
             image_url: None,
             is_docker: true,
             container_name: None,
-            preview_rows: vec![
-                ServicePreviewRow {
-                    name: "Trezor".to_string(),
-                    status: "active".to_string(),
-                    meta: "Šifrováno".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "Záloha DB".to_string(),
-                    status: "active".to_string(),
-                    meta: "Dnes 02:30".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "WebSocket".to_string(),
-                    status: "running".to_string(),
-                    meta: "Synchronizováno".to_string(),
-                },
-            ],
         },
         HomelabService {
             id: "svc-jellyfin".to_string(),
@@ -695,23 +684,6 @@ fn default_extra_services() -> Vec<HomelabService> {
             image_url: None,
             is_docker: true,
             container_name: None,
-            preview_rows: vec![
-                ServicePreviewRow {
-                    name: "Transkódování".to_string(),
-                    status: "active".to_string(),
-                    meta: "HW VA-API".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "Filmy & Seriály".to_string(),
-                    status: "active".to_string(),
-                    meta: "1.4 TB".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "Přehrávání".to_string(),
-                    status: "active".to_string(),
-                    meta: "0 aktivních".to_string(),
-                },
-            ],
         },
         HomelabService {
             id: "svc-homeassistant".to_string(),
@@ -724,23 +696,6 @@ fn default_extra_services() -> Vec<HomelabService> {
             image_url: None,
             is_docker: true,
             container_name: None,
-            preview_rows: vec![
-                ServicePreviewRow {
-                    name: "Zigbee2MQTT".to_string(),
-                    status: "running".to_string(),
-                    meta: "28 zařízení".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "Automatizace".to_string(),
-                    status: "active".to_string(),
-                    meta: "19 aktivních".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "Teplota doma".to_string(),
-                    status: "active".to_string(),
-                    meta: "21.8 °C".to_string(),
-                },
-            ],
         },
         HomelabService {
             id: "svc-grafana".to_string(),
@@ -753,18 +708,6 @@ fn default_extra_services() -> Vec<HomelabService> {
             image_url: None,
             is_docker: true,
             container_name: None,
-            preview_rows: vec![
-                ServicePreviewRow {
-                    name: "Prometheus".to_string(),
-                    status: "stopped".to_string(),
-                    meta: "Pozastaveno".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "Dashboardy".to_string(),
-                    status: "active".to_string(),
-                    meta: "6 šablon".to_string(),
-                },
-            ],
         },
     ]
 }
@@ -788,20 +731,12 @@ fn default_sudo_profile() -> UserProfile {
         visible_services: None,
         shortcuts: vec![
             UserShortcut {
-                id: "sc-sudo-portainer".to_string(),
-                label: "Portainer".to_string(),
-                category: "service".to_string(),
-                kind: ShortcutKind::Link,
-                target: "https://portainer.vykylab.local".to_string(),
-                icon: "dashboard".to_string(),
-            },
-            UserShortcut {
                 id: "sc-sudo-docker".to_string(),
                 label: "Docker ps".to_string(),
                 category: "service".to_string(),
                 kind: ShortcutKind::Script,
                 target: "docker ps --format 'table {{.Names}}\\t{{.Status}}' || uname -a".to_string(),
-                icon: "table".to_string(),
+                icon: "terminal".to_string(),
             },
             UserShortcut {
                 id: "sc-sudo-df".to_string(),
@@ -810,30 +745,6 @@ fn default_sudo_profile() -> UserProfile {
                 kind: ShortcutKind::Script,
                 target: "df -h /".to_string(),
                 icon: "terminal".to_string(),
-            },
-            UserShortcut {
-                id: "sc-sudo-adguard".to_string(),
-                label: "AdGuard DNS".to_string(),
-                category: "service".to_string(),
-                kind: ShortcutKind::Link,
-                target: "https://dns.vykylab.local".to_string(),
-                icon: "shield".to_string(),
-            },
-            UserShortcut {
-                id: "sc-sudo-top".to_string(),
-                label: "Uptime & Load".to_string(),
-                category: "account".to_string(),
-                kind: ShortcutKind::Script,
-                target: "uptime".to_string(),
-                icon: "user".to_string(),
-            },
-            UserShortcut {
-                id: "sc-sudo-net".to_string(),
-                label: "Síťové porty".to_string(),
-                category: "account".to_string(),
-                kind: ShortcutKind::Script,
-                target: "lsof -i -P -n | head -n 15 || netstat -an | head -n 15".to_string(),
-                icon: "settings".to_string(),
             },
         ],
     }
@@ -865,29 +776,13 @@ fn build_family_profile(
         visible_services: None,
         shortcuts: vec![
             UserShortcut {
-                id: "sc-dashboard".to_string(),
-                label: "Portainer".to_string(),
-                category: "service".to_string(),
-                kind: ShortcutKind::Link,
-                target: "https://portainer.vykylab.local".to_string(),
-                icon: "dashboard".to_string(),
-            },
-            UserShortcut {
                 id: "sc-containers".to_string(),
                 label: "Docker ps".to_string(),
                 category: "service".to_string(),
                 kind: ShortcutKind::Script,
                 target: "docker ps --format 'table {{.Names}}\\t{{.Status}}' || uname -a"
                     .to_string(),
-                icon: "table".to_string(),
-            },
-            UserShortcut {
-                id: "sc-adguard".to_string(),
-                label: "AdGuard DNS".to_string(),
-                category: "service".to_string(),
-                kind: ShortcutKind::Link,
-                target: "https://dns.vykylab.local".to_string(),
-                icon: "shield".to_string(),
+                icon: "terminal".to_string(),
             },
             UserShortcut {
                 id: "sc-disk".to_string(),
@@ -896,22 +791,6 @@ fn build_family_profile(
                 kind: ShortcutKind::Script,
                 target: "df -h /".to_string(),
                 icon: "terminal".to_string(),
-            },
-            UserShortcut {
-                id: "sc-uptime".to_string(),
-                label: "Uptime & Load".to_string(),
-                category: "account".to_string(),
-                kind: ShortcutKind::Script,
-                target: "uptime".to_string(),
-                icon: "user".to_string(),
-            },
-            UserShortcut {
-                id: "sc-backup".to_string(),
-                label: "Backup Sync".to_string(),
-                category: "account".to_string(),
-                kind: ShortcutKind::Script,
-                target: "echo 'Snapshot ověřen: 3-2-1 OK'".to_string(),
-                icon: "settings".to_string(),
             },
         ],
     }
@@ -944,28 +823,6 @@ fn default_store() -> PersistedStore {
             image_url: None,
             is_docker: true,
             container_name: None,
-            preview_rows: vec![
-                ServicePreviewRow {
-                    name: "traefik-proxy".to_string(),
-                    status: "running".to_string(),
-                    meta: "v3.1 · 18d".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "adguard-home".to_string(),
-                    status: "running".to_string(),
-                    meta: "v0.107 · 18d".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "immich-server".to_string(),
-                    status: "running".to_string(),
-                    meta: "v1.119 · 12d".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "vaultwarden".to_string(),
-                    status: "running".to_string(),
-                    meta: "v1.32 · 18d".to_string(),
-                },
-            ],
         },
         HomelabService {
             id: "svc-adguard".to_string(),
@@ -978,28 +835,6 @@ fn default_store() -> PersistedStore {
             image_url: None,
             is_docker: true,
             container_name: None,
-            preview_rows: vec![
-                ServicePreviewRow {
-                    name: "Dotazy (24h)".to_string(),
-                    status: "active".to_string(),
-                    meta: "24 810".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "Blokováno".to_string(),
-                    status: "active".to_string(),
-                    meta: "18.4 %".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "Prům. odezva".to_string(),
-                    status: "active".to_string(),
-                    meta: "4 ms".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "Upstream DNS".to_string(),
-                    status: "active".to_string(),
-                    meta: "Cloudflare DoH".to_string(),
-                },
-            ],
         },
         HomelabService {
             id: "svc-immich".to_string(),
@@ -1012,56 +847,17 @@ fn default_store() -> PersistedStore {
             image_url: None,
             is_docker: true,
             container_name: None,
-            preview_rows: vec![
-                ServicePreviewRow {
-                    name: "immich-ml".to_string(),
-                    status: "running".to_string(),
-                    meta: "GPU Ready".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "immich-postgres".to_string(),
-                    status: "running".to_string(),
-                    meta: "pgvector · 12d".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "Knihovna".to_string(),
-                    status: "active".to_string(),
-                    meta: "42 180 fotek".to_string(),
-                },
-                ServicePreviewRow {
-                    name: "Poslední záloha".to_string(),
-                    status: "active".to_string(),
-                    meta: "Dnes 03:00".to_string(),
-                },
-            ],
         },
     ];
     services.extend(default_extra_services());
-
-    let events = vec![
-        SystemEvent {
-            id: "evt-1".to_string(),
-            timestamp: now_time.clone(),
-            level: "ok".to_string(),
-            source: "Vykylab Core".to_string(),
-            message: "Všechny služby a tunely běží bez chyb.".to_string(),
-        },
-        SystemEvent {
-            id: "evt-2".to_string(),
-            timestamp: "04:32".to_string(),
-            level: "info".to_string(),
-            source: "Cloudflare & Tailscale".to_string(),
-            message: "Noční kontrola tunelu dokončena (odezva 11 ms).".to_string(),
-        },
-    ];
 
     PersistedStore {
         active_profile_id: default_active_id,
         profiles,
         services,
-        events,
         uploads: vec![],
         ssh: default_ssh_config(),
+        noticeboard: default_noticeboard(),
         last_checked: now_time,
         weather_summary: "7°C bez větru".to_string(),
     }
@@ -1243,8 +1039,6 @@ struct DockerPsRow {
     state: String,
     #[serde(rename = "Status", default)]
     status: String,
-    #[serde(rename = "Ports", default)]
-    ports: String,
 }
 
 async fn probe_real_docker_containers() -> Option<Vec<DockerPsRow>> {
@@ -1387,8 +1181,6 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
             name,
             cpu_percent: (cpu_u * 10.0).round() / 10.0,
             memory_mb: ((mem_b as f64 / 1_048_576.0) * 10.0).round() / 10.0,
-            disk_read_mb: ((usage.read_bytes as f64 / 1_048_576.0) * 10.0).round() / 10.0,
-            disk_write_mb: ((usage.written_bytes as f64 / 1_048_576.0) * 10.0).round() / 10.0,
             status: format!("{:?}", proc_item.status()),
             cmd,
             run_time_secs: proc_item.run_time(),
@@ -1465,7 +1257,8 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
     let fallback_weather = store.weather_summary.clone();
     let active_location = active_profile.location.clone();
     let last_checked = store.last_checked.clone();
-    let events = store.events.clone();
+    let mut noticeboard = store.noticeboard.clone();
+    noticeboard.sort_by_key(|n| !n.pinned);
     let uploads = store.uploads.clone();
     let ssh = store.ssh.clone();
     let profiles: Vec<PublicUserProfile> = store.profiles.iter().map(PublicUserProfile::from).collect();
@@ -1517,17 +1310,6 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
                 image_url: existing.and_then(|e| e.image_url.clone()),
                 is_docker: true,
                 container_name: Some(row.names.clone()),
-                preview_rows: vec![
-                    ServicePreviewRow {
-                        name: row.image,
-                        status: svc_status,
-                        meta: if row.ports.trim().is_empty() {
-                            "interní síť".to_string()
-                        } else {
-                            row.ports
-                        },
-                    },
-                ],
             });
         }
 
@@ -1588,7 +1370,7 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
         profiles,
         docker_live,
         services: synced_services,
-        events,
+        noticeboard,
         uploads,
         ssh,
         monitoring: SystemMonitoring {
@@ -1623,7 +1405,6 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
             process_count,
             uptime_formatted,
             tunnel_label: "Tailscale & Cloudflare".to_string(),
-            tunnel_tx: format!("{:.0}%", cpu_percent.clamp(1.0, 100.0)),
             connected_to,
         },
         processes,
@@ -1858,11 +1639,6 @@ async fn search_services(
             } else {
                 "stopped vypnuto offline exited stop down"
             };
-            let rows_f: Vec<(String, String)> = svc
-                .preview_rows
-                .iter()
-                .map(|r| (fold_czech_ascii(&r.name), fold_czech_ascii(&r.meta)))
-                .collect();
 
             let mut total_score = 0u32;
             let mut matched_tokens = 0usize;
@@ -1884,17 +1660,10 @@ async fn search_services(
                 let s_status = (score_token_in_field(tok, status_aliases) * 11) / 10
                     + (score_token_in_field(tok, &uptime_f) * 10) / 10;
 
-                let mut s_rows = 0u32;
-                for (rn, rm) in &rows_f {
-                    let row_hit = score_token_in_field(tok, rn)
-                        .max(score_token_in_field(tok, rm));
-                    s_rows = s_rows.max((row_hit * 15) / 10);
-                }
-
-                let tok_best = s_name.max(s_sub).max(s_url).max(s_status).max(s_rows);
+                let tok_best = s_name.max(s_sub).max(s_url).max(s_status);
                 if tok_best > 0 {
                     matched_tokens += 1;
-                    let secondary = (s_name + s_sub + s_url + s_rows + s_status - tok_best) / 5;
+                    let secondary = (s_name + s_sub + s_url + s_status - tok_best) / 5;
                     total_score += tok_best + secondary;
                     matched_terms.push(tok.clone());
                 }
@@ -1936,77 +1705,6 @@ async fn search_services(
 async fn get_dashboard(State(state): State<AppState>) -> impl IntoResponse {
     state.sync_yaml_if_changed().await;
     Json(build_dashboard(&state).await)
-}
-
-async fn create_profile(
-    State(state): State<AppState>,
-    Json(payload): Json<CreateProfilePayload>,
-) -> impl IntoResponse {
-    let trimmed = payload.name.trim();
-    if trimmed.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "ok": false, "message": "Jméno profilu nesmí být prázdné." })),
-        );
-    }
-
-    let initials = trimmed
-        .chars()
-        .next()
-        .map(|c| c.to_uppercase().to_string())
-        .unwrap_or_else(|| "U".to_string());
-
-    let new_profile = UserProfile {
-        id: format!("prof-{}", &Uuid::new_v4().to_string()[..8]),
-        name: trimmed.to_string(),
-        workspace_label: payload
-            .workspace_label
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| "Vykylab".to_string()),
-        role: payload
-            .role
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| "Uživatel".to_string()),
-        location: payload
-            .location
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| "Praha".to_string()),
-        avatar_initials: initials,
-        avatar_color: payload
-            .avatar_color
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(default_avatar_color),
-        is_admin: false,
-        pin_code: None,
-        favorite_services: vec!["svc-portainer".to_string(), "svc-adguard".to_string()],
-        visible_services: None,
-        shortcuts: vec![UserShortcut {
-            id: format!("sc-{}", &Uuid::new_v4().to_string()[..6]),
-            label: "Uptime".to_string(),
-            category: "service".to_string(),
-            kind: ShortcutKind::Script,
-            target: "uptime".to_string(),
-            icon: "terminal".to_string(),
-        }],
-    };
-
-    let mut store = state.store.write().await;
-    store.active_profile_id = new_profile.id.clone();
-    store.profiles.push(new_profile);
-    store.events.insert(
-        0,
-        SystemEvent {
-            id: format!("evt-{}", &Uuid::new_v4().to_string()[..8]),
-            timestamp: Local::now().format("%H:%M").to_string(),
-            level: "info".to_string(),
-            source: "Profil".to_string(),
-            message: format!("Vytvořen a aktivován uživatelský profil '{}'.", trimmed),
-        },
-    );
-    state.persist(&store).await;
-    drop(store);
-
-    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })))
 }
 
 async fn update_profile(
@@ -2113,7 +1811,7 @@ async fn create_admin_service(
     let linked_container = container_name.as_ref().and_then(|cname| {
         store.services.iter().find(|s| s.is_docker && (s.id == *cname || s.name.eq_ignore_ascii_case(cname)))
     });
-    let (status, uptime, resolved_container_name) = if let Some(ref target) = linked_container {
+    let (status, uptime, resolved_container_name) = if let Some(target) = linked_container {
         (target.status.clone(), target.uptime.clone(), Some(target.name.clone()))
     } else if is_docker {
         ("running".to_string(), "Up (healthy) · právě teď".to_string(), container_name.clone())
@@ -2124,21 +1822,14 @@ async fn create_admin_service(
     let new_service = HomelabService {
         id: id.clone(),
         name: name.to_string(),
-        subtitle: subtitle.clone(),
-        status: status.clone(),
+        subtitle,
+        status,
         uptime,
         url: url.to_string(),
         icon,
         image_url,
         is_docker,
         container_name: resolved_container_name,
-        preview_rows: vec![
-            ServicePreviewRow {
-                name: subtitle,
-                status,
-                meta: url.trim_start_matches("https://").trim_start_matches("http://").to_string(),
-            },
-        ],
     };
 
     store.services.push(new_service);
@@ -2210,6 +1901,11 @@ async fn delete_admin_service(
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     let mut store = state.store.write().await;
+    let removed_image = store
+        .services
+        .iter()
+        .find(|s| s.id == id)
+        .and_then(|s| s.image_url.clone());
     let before = store.services.len();
     store.services.retain(|s| s.id != id);
     if store.services.len() == before {
@@ -2226,6 +1922,14 @@ async fn delete_admin_service(
     }
     state.persist(&store).await;
     drop(store);
+
+    if let Some(url) = removed_image {
+        if let Some(fname) = url.strip_prefix("/api/service-images/") {
+            if let Some(safe) = StdPath::new(fname).file_name().and_then(|n| n.to_str()) {
+                let _ = fs::remove_file(state.service_images_dir.join(safe));
+            }
+        }
+    }
 
     (
         StatusCode::OK,
@@ -2454,21 +2158,6 @@ async fn run_script(
         Err(e) => (false, format!("Chyba spuštění: {}", e)),
     };
 
-    let mut store = state.store.write().await;
-    store.events.insert(
-        0,
-        SystemEvent {
-            id: format!("evt-{}", &Uuid::new_v4().to_string()[..8]),
-            timestamp: Local::now().format("%H:%M").to_string(),
-            level: if ok { "ok" } else { "warn" }.to_string(),
-            source: format!("Script: {}", sc.label),
-            message: text.lines().take(2).collect::<Vec<_>>().join(" | "),
-        },
-    );
-    store.events.truncate(40);
-    state.persist(&store).await;
-    drop(store);
-
     (
         StatusCode::OK,
         Json(serde_json::json!({
@@ -2517,25 +2206,6 @@ async fn service_action(
                 .await;
 
             if let Ok(out) = cmd_res {
-                let mut store = state.store.write().await;
-                store.events.insert(
-                    0,
-                    SystemEvent {
-                        id: format!("evt-{}", &Uuid::new_v4().to_string()[..8]),
-                        timestamp: Local::now().format("%H:%M").to_string(),
-                        level: if out.status.success() { "ok" } else { "error" }.to_string(),
-                        source: format!("Docker · {}", cname),
-                        message: if out.status.success() {
-                            format!("Docker '{}' proveden na kontejneru {}.", action, cname)
-                        } else {
-                            String::from_utf8_lossy(&out.stderr).trim().to_string()
-                        },
-                    },
-                );
-                store.events.truncate(40);
-                state.persist(&store).await;
-                drop(store);
-
                 return (
                     StatusCode::OK,
                     Json(serde_json::json!({ "ok": out.status.success(), "dashboard": build_dashboard(&state).await })),
@@ -2553,7 +2223,6 @@ async fn service_action(
         );
     };
 
-    let svc_name = svc.name.clone();
     match action {
         "stop" => {
             svc.status = "stopped".to_string();
@@ -2566,17 +2235,6 @@ async fn service_action(
         _ => {}
     }
 
-    store.events.insert(
-        0,
-        SystemEvent {
-            id: format!("evt-{}", &Uuid::new_v4().to_string()[..8]),
-            timestamp: Local::now().format("%H:%M").to_string(),
-            level: "info".to_string(),
-            source: svc_name.clone(),
-            message: format!("Akce '{}' provedena na službě {}.", action, svc_name),
-        },
-    );
-    store.events.truncate(40);
     state.persist(&store).await;
     drop(store);
 
@@ -2656,23 +2314,7 @@ async fn get_docker_logs(
 async fn run_system_check(State(state): State<AppState>) -> impl IntoResponse {
     let now_time = Local::now().format("%H:%M").to_string();
     let mut store = state.store.write().await;
-    store.last_checked = now_time.clone();
-    let all_up = store.services.iter().all(|s| s.status == "running");
-    store.events.insert(
-        0,
-        SystemEvent {
-            id: format!("evt-{}", &Uuid::new_v4().to_string()[..8]),
-            timestamp: now_time,
-            level: if all_up { "ok" } else { "warn" }.to_string(),
-            source: "Kontrola systému".to_string(),
-            message: if all_up {
-                "Kontrola dokončena: CPU, disky a všechny služby v pořádku.".to_string()
-            } else {
-                "Kontrola dokončena: některá služba je zastavena.".to_string()
-            },
-        },
-    );
-    store.events.truncate(40);
+    store.last_checked = now_time;
     state.persist(&store).await;
     drop(store);
 
@@ -2718,20 +2360,9 @@ async fn upload_file(
 
     let mut store = state.store.write().await;
     for item in saved.iter().rev() {
-        store.events.insert(
-            0,
-            SystemEvent {
-                id: format!("evt-{}", &Uuid::new_v4().to_string()[..8]),
-                timestamp: item.uploaded_at.clone(),
-                level: "ok".to_string(),
-                source: "Nahrání".to_string(),
-                message: format!("Soubor '{}' ({} B) uložen na server.", item.name, item.size_bytes),
-            },
-        );
         store.uploads.insert(0, item.clone());
     }
     store.uploads.truncate(20);
-    store.events.truncate(40);
     state.persist(&store).await;
     drop(store);
 
@@ -2973,6 +2604,113 @@ async fn admin_exec(
     )
 }
 
+async fn create_noticeboard_item(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateNoticeboardPayload>,
+) -> impl IntoResponse {
+    let title = payload.title.trim();
+    let message = payload.message.trim();
+    if title.is_empty() || message.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "message": "Vyplň nadpis i text vzkazu." })),
+        );
+    }
+
+    let tag = payload
+        .tag
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("Oznámení")
+        .to_string();
+
+    let mut store = state.store.write().await;
+    let author = store
+        .profiles
+        .iter()
+        .find(|p| p.id == store.active_profile_id)
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| "Sudo".to_string());
+
+    store.noticeboard.insert(
+        0,
+        NoticeboardItem {
+            id: format!("note-{}", &Uuid::new_v4().to_string()[..8]),
+            title: title.to_string(),
+            message: message.to_string(),
+            author,
+            tag,
+            pinned: payload.pinned.unwrap_or(false),
+            timestamp: Local::now().format("%-d.%-m. · %H:%M").to_string(),
+        },
+    );
+    state.persist(&store).await;
+    drop(store);
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+    )
+}
+
+async fn update_noticeboard_item(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(payload): Json<UpdateNoticeboardPayload>,
+) -> impl IntoResponse {
+    let mut store = state.store.write().await;
+    let Some(item) = store.noticeboard.iter_mut().find(|n| n.id == id) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "ok": false, "message": "Vzkaz nenalezen." })),
+        );
+    };
+
+    if let Some(title) = payload.title.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        item.title = title.to_string();
+    }
+    if let Some(msg) = payload.message.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        item.message = msg.to_string();
+    }
+    if let Some(tag) = payload.tag.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        item.tag = tag.to_string();
+    }
+    if let Some(pinned) = payload.pinned {
+        item.pinned = pinned;
+    }
+
+    state.persist(&store).await;
+    drop(store);
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+    )
+}
+
+async fn delete_noticeboard_item(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let mut store = state.store.write().await;
+    let before = store.noticeboard.len();
+    store.noticeboard.retain(|n| n.id != id);
+    if store.noticeboard.len() == before {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "ok": false, "message": "Vzkaz nenalezen." })),
+        );
+    }
+    state.persist(&store).await;
+    drop(store);
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+    )
+}
+
 // ============================================================================
 // Main Entry
 // ============================================================================
@@ -2989,7 +2727,6 @@ async fn main() {
         .route("/api/health", get(health))
         .route("/api/dashboard", get(get_dashboard))
         .route("/api/services/search", get(search_services))
-        .route("/api/profiles", post(create_profile))
         .route("/api/profiles/:id", put(update_profile))
         .route("/api/profiles/:id/activate", post(activate_profile))
         .route("/api/profiles/:id/shortcuts", post(add_shortcut))
@@ -3002,7 +2739,9 @@ async fn main() {
         .route("/api/service-images/:filename", get(serve_service_image))
         .route("/api/admin/services", post(create_admin_service))
         .route("/api/admin/services/:id", put(update_admin_service).delete(delete_admin_service))
-        .route("/api/events/check", post(run_system_check))
+        .route("/api/admin/noticeboard", post(create_noticeboard_item))
+        .route("/api/admin/noticeboard/:id", put(update_noticeboard_item).delete(delete_noticeboard_item))
+        .route("/api/system/check", post(run_system_check))
         .route("/api/upload", post(upload_file))
         .route("/api/admin/exec", post(admin_exec))
         .route("/api/admin/ssh/connections", post(add_ssh_connection))

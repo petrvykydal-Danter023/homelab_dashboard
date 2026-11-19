@@ -23,6 +23,7 @@ import {
   Network,
   Palette,
   Pencil,
+  Pin,
   Play,
   Plus,
   RefreshCw,
@@ -42,6 +43,7 @@ import {
 import type {
   DashboardResponse,
   HomelabService,
+  NoticeboardItem,
   ProcessInfo,
   SshConnection,
   UserProfile,
@@ -55,7 +57,7 @@ import {
   getProfileAvatarTheme,
 } from './Avatar';
 
-type AdminTab = 'dashboard' | 'docker' | 'ssh' | 'processes' | 'profiles';
+type AdminTab = 'dashboard' | 'docker' | 'ssh' | 'processes' | 'profiles' | 'noticeboard';
 type ProcessSortKey = 'cpu' | 'memory' | 'name';
 type HoveredMetric = 'cpu' | 'ram' | 'storage' | 'network' | 'uptime' | 'diskio' | null;
 
@@ -132,8 +134,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [sshHistory, setSshHistory] = useState<
     { id: number; cmd: string; output: string; ok: boolean; target?: string; duration_ms?: number; exit_code?: number }[]
   >([]);
-  const [sshEndRefInit] = useState(true);
-  void sshEndRefInit;
   const sshEndRef = useRef<HTMLDivElement | null>(null);
 
   // Profiles & Service Visibility + Service Media state (exclude admin/sudo)
@@ -148,6 +148,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     selectedProfile?.avatar_color ?? 'cyan'
   );
   const [profDraftPin, setProfDraftPin] = useState('');
+  const [noteTitle, setNoteTitle] = useState('');
+  const [noteMessage, setNoteMessage] = useState('');
+  const [noteTag, setNoteTag] = useState<'Oznámení' | 'Info' | 'Údržba'>('Oznámení');
+  const [notePinned, setNotePinned] = useState(false);
+  const [noteFilter, setNoteFilter] = useState<'all' | 'pinned'>('all');
+  const [editingNote, setEditingNote] = useState<NoticeboardItem | null>(null);
   // Real Docker containers only (excludes profile links)
   const dockerServices = data.services.filter((s) => s.is_docker !== false);
   const [newSvcMode, setNewSvcMode] = useState<'link' | 'container'>('link');
@@ -219,6 +225,91 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setProfDraftPin('');
         await onRefresh();
         onShowToast(true, `PIN pro ${selectedProfile.name} odstraněn.`);
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleCreateNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!noteTitle.trim() || !noteMessage.trim()) return;
+    setBusyId('note-create');
+    try {
+      const res = await fetch('/api/admin/noticeboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: noteTitle.trim(),
+          message: noteMessage.trim(),
+          tag: noteTag,
+          pinned: notePinned,
+        }),
+      });
+      if (res.ok) {
+        setNoteTitle('');
+        setNoteMessage('');
+        setNotePinned(false);
+        await onRefresh();
+        onShowToast(true, 'Vzkaz přidán na nástěnku.');
+      } else {
+        onShowToast(false, 'Nepodařilo se přidat vzkaz.');
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleToggleNotePin = async (note: NoticeboardItem) => {
+    setBusyId(`note-pin-${note.id}`);
+    try {
+      const res = await fetch(`/api/admin/noticeboard/${encodeURIComponent(note.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned: !note.pinned }),
+      });
+      if (res.ok) {
+        await onRefresh();
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleSaveEditedNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingNote || !editingNote.title.trim() || !editingNote.message.trim()) return;
+    setBusyId(`note-edit-${editingNote.id}`);
+    try {
+      const res = await fetch(`/api/admin/noticeboard/${encodeURIComponent(editingNote.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: editingNote.title.trim(),
+          message: editingNote.message.trim(),
+          tag: editingNote.tag,
+          pinned: editingNote.pinned,
+        }),
+      });
+      if (res.ok) {
+        setEditingNote(null);
+        await onRefresh();
+        onShowToast(true, 'Vzkaz upraven.');
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    setBusyId(`note-del-${noteId}`);
+    try {
+      const res = await fetch(`/api/admin/noticeboard/${encodeURIComponent(noteId)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        await onRefresh();
+        onShowToast(true, 'Vzkaz smazán.');
       }
     } finally {
       setBusyId(null);
@@ -444,7 +535,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleSystemCheck = async () => {
     setBusyId('adm-check');
     try {
-      const res = await fetch('/api/events/check', { method: 'POST' });
+      const res = await fetch('/api/system/check', { method: 'POST' });
       if (res.ok) {
         await onRefresh();
         onShowToast(true, 'Kontrola systému dokončena.');
@@ -679,6 +770,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     ['ssh', 'SSH', <Terminal className="w-3.5 h-3.5" />],
                     ['processes', 'Procesy', <Activity className="w-3.5 h-3.5" />],
                     ['profiles', 'Profiles', <Users className="w-3.5 h-3.5" />],
+                    ['noticeboard', 'Nástěnka', <Pin className="w-3.5 h-3.5" />],
                   ] as [AdminTab, string, React.ReactNode][]
                 ).map(([key, label, icon]) => {
                   const active = activeTab === key;
@@ -1169,7 +1261,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="grid grid-cols-3 gap-1.5 bg-white/[0.04] p-1 rounded-xl border border-white/[0.08]">
                     {(
                       [
-                        ['all', `Vše (${data.services.length})`],
+                        ['all', `Vše (${dockerServices.length})`],
                         ['running', `Běží (${runningCount})`],
                         ['stopped', `Stop (${stoppedCount})`],
                       ] as ['all' | 'running' | 'stopped', string][]
@@ -1243,7 +1335,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div>
                       <div className="text-[11px] text-zinc-400">Celkem</div>
                       <div className="text-2xl font-semibold font-mono text-white mt-0.5">
-                        {data.services.length}
+                        {dockerServices.length}
                       </div>
                     </div>
                     <Container className="w-4 h-4 text-cyan-300" />
@@ -2590,7 +2682,339 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </main>
           );
         })()}
+
+        {/* ================================================================ */}
+        {/* TAB 6: FAMILY NOTICEBOARD (NÁSTĚNKA)                            */}
+        {/* ================================================================ */}
+        {activeTab === 'noticeboard' && (() => {
+          const allNotes = data.noticeboard ?? [];
+          const pinnedCount = allNotes.filter((n) => n.pinned).length;
+          const visibleNotes =
+            noteFilter === 'pinned' ? allNotes.filter((n) => n.pinned) : allNotes;
+
+          return (
+            <main className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1 min-h-0 items-stretch">
+              {/* LEFT COLUMN (4 COLS): FIXED RED SUDO AVATAR + NOTICEBOARD CONTROLS */}
+              <section className="lg:col-span-4 lg:h-full apple-card p-6 flex flex-col justify-between gap-4 relative overflow-hidden">
+                <div className="relative z-10 flex items-center justify-between gap-2">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.06] border border-white/[0.08] text-xs text-zinc-200">
+                    <Pin className="w-3.5 h-3.5 text-rose-300" />
+                    <span className="font-medium">Rodinná nástěnka</span>
+                  </div>
+                  <span className="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-white/[0.05] text-zinc-300 border border-white/[0.08]">
+                    {allNotes.length} vzkazů
+                  </span>
+                </div>
+
+                {/* Main Red Sudo Avatar */}
+                <div className="relative z-10 flex flex-col items-center justify-center my-auto py-2 text-center gap-3">
+                  <div
+                    aria-hidden="true"
+                    className={`pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 ${AVATAR_CONFIG.dashboardOrb.glowClass} rounded-full blur-3xl opacity-75 ${getProfileAvatarTheme(profile).glow}`}
+                    style={getProfileAvatarTheme(profile).glowStyle}
+                  />
+                  <div className="relative z-20">
+                    <AvatarOrb
+                      profile={profile}
+                      interactive
+                      sizeClass={AVATAR_CONFIG.dashboardOrb.sizeClass}
+                    />
+                  </div>
+                  <div className="relative z-20 space-y-0.5">
+                    <div className="text-sm font-semibold text-white">
+                      Vzkazy pro všechny profily
+                    </div>
+                    <div className="text-[11px] text-zinc-400">
+                      Připnuto nahoru: <span className="font-mono text-white">{pinnedCount}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Filter Controls */}
+                <div className="relative z-10 grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-white/[0.04] border border-white/[0.07]">
+                  {(
+                    [
+                      ['all', `Vše (${allNotes.length})`],
+                      ['pinned', `Připnuté (${pinnedCount})`],
+                    ] as ['all' | 'pinned', string][]
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setNoteFilter(key)}
+                      className={`py-2 rounded-lg text-xs font-medium transition-colors ${
+                        noteFilter === key
+                          ? 'bg-white text-zinc-950 font-semibold'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              {/* RIGHT COLUMN (8 COLS): COMPOSE & MANAGE NOTICEBOARD */}
+              <div className="lg:col-span-8 lg:h-full lg:overflow-y-auto lg:pt-1 lg:-mt-1 lg:pb-2 lg:pr-1 flex flex-col gap-4 min-h-0">
+                {/* 1. Compose New Notice */}
+                <section className="apple-card p-6 space-y-4 shrink-0">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-sm font-semibold tracking-tight text-white">
+                        Nový vzkaz na nástěnku
+                      </h2>
+                      <p className="text-xs text-zinc-400 mt-0.5">
+                        Zobrazí se v pop-up Nástěnce na všech uživatelských profilech
+                      </p>
+                    </div>
+
+                    <div className="inline-flex p-1 rounded-xl bg-white/[0.04] border border-white/[0.08] gap-1">
+                      {(['Oznámení', 'Info', 'Údržba'] as const).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setNoteTag(t)}
+                          className={`px-3 py-1 rounded-lg text-[11px] font-medium transition-all ${
+                            noteTag === t
+                              ? 'bg-white text-zinc-950 font-semibold'
+                              : 'text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleCreateNote} className="space-y-3">
+                    <div>
+                      <label className="text-[11px] font-medium text-zinc-400 block mb-1.5">
+                        Nadpis
+                      </label>
+                      <input
+                        type="text"
+                        value={noteTitle}
+                        onChange={(e) => setNoteTitle(e.target.value)}
+                        placeholder="např. Večerní restart serveru"
+                        className="apple-well w-full px-3.5 py-2.5 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-white/25"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-medium text-zinc-400 block mb-1.5">
+                        Text vzkazu
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={noteMessage}
+                        onChange={(e) => setNoteMessage(e.target.value)}
+                        placeholder="Napiš krátkou zprávu pro rodinu nebo poznámku k homelabu…"
+                        className="apple-well w-full px-3.5 py-2.5 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-white/25 resize-none"
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setNotePinned((p) => !p)}
+                        className={`px-3.5 py-2 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                          notePinned
+                            ? 'bg-white/[0.12] border-white/25 text-white'
+                            : 'bg-white/[0.04] border-white/[0.08] text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        <Pin className="w-3.5 h-3.5" />
+                        <span>{notePinned ? 'Připnuto nahoru' : 'Připnout nahoru'}</span>
+                      </button>
+
+                      <button
+                        type="submit"
+                        disabled={
+                          !noteTitle.trim() ||
+                          !noteMessage.trim() ||
+                          busyId === 'note-create'
+                        }
+                        className="py-2.5 px-5 rounded-xl bg-white hover:bg-zinc-200 text-zinc-950 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-40 transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Přidat vzkaz</span>
+                      </button>
+                    </div>
+                  </form>
+                </section>
+
+                {/* 2. Existing Notices List */}
+                <section className="space-y-3">
+                  {visibleNotes.length === 0 ? (
+                    <div className="apple-card p-8 text-center text-xs text-zinc-500">
+                      Žádné vzkazy k zobrazení.
+                    </div>
+                  ) : (
+                    visibleNotes.map((note) => (
+                      <div
+                        key={note.id}
+                        className={`apple-card p-5 space-y-2.5 transition-colors ${
+                          note.pinned ? 'border-white/[0.18]' : ''
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {note.pinned && (
+                                <Pin className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+                              )}
+                              <h3 className="text-sm font-semibold text-white">
+                                {note.title}
+                              </h3>
+                              <span
+                                className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
+                                  note.tag === 'Údržba'
+                                    ? 'bg-amber-500/15 text-amber-300 border-amber-400/30'
+                                    : note.tag === 'Info'
+                                      ? 'bg-cyan-500/10 text-cyan-300 border-cyan-400/25'
+                                      : 'bg-white/[0.06] text-zinc-300 border-white/[0.1]'
+                                }`}
+                              >
+                                {note.tag}
+                              </span>
+                            </div>
+                            <p className="text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                              {note.message}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleNotePin(note)}
+                              disabled={busyId === `note-pin-${note.id}`}
+                              title={note.pinned ? 'Odepnout' : 'Připnout nahoru'}
+                              className={`p-2 rounded-xl border transition-colors ${
+                                note.pinned
+                                  ? 'bg-white text-zinc-950 border-white'
+                                  : 'bg-white/[0.04] hover:bg-white/[0.1] border-white/[0.08] text-zinc-400 hover:text-white'
+                              }`}
+                            >
+                              <Pin className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingNote(note)}
+                              title="Upravit vzkaz"
+                              className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.1] border border-white/[0.08] text-zinc-300 hover:text-white transition-colors"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteNote(note.id)}
+                              disabled={busyId === `note-del-${note.id}`}
+                              title="Smazat vzkaz"
+                              className="p-2 rounded-xl bg-white/[0.04] hover:bg-rose-500/15 border border-white/[0.08] hover:border-rose-400/30 text-zinc-400 hover:text-rose-300 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[10px] text-zinc-500 pt-1 border-t border-white/[0.06]">
+                          <span>Autor: {note.author}</span>
+                          <span className="font-mono">{note.timestamp}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </section>
+              </div>
+            </main>
+          );
+        })()}
       </div>
+
+      {/* Edit Noticeboard Item Modal */}
+      {editingNote && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+          <form
+            onSubmit={handleSaveEditedNote}
+            className="apple-card w-full max-w-md p-6 space-y-4"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold text-white">Upravit vzkaz</h2>
+              <button
+                type="button"
+                onClick={() => setEditingNote(null)}
+                className="p-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="inline-flex p-1 rounded-xl bg-white/[0.04] border border-white/[0.08] gap-1">
+                {(['Oznámení', 'Info', 'Údržba'] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setEditingNote({ ...editingNote, tag: t })}
+                    className={`px-3 py-1 rounded-lg text-[11px] font-medium transition-all ${
+                      editingNote.tag === t
+                        ? 'bg-white text-zinc-950 font-semibold'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1">Nadpis</label>
+                <input
+                  type="text"
+                  value={editingNote.title}
+                  onChange={(e) =>
+                    setEditingNote({ ...editingNote, title: e.target.value })
+                  }
+                  className="apple-well w-full px-3.5 py-2.5 text-sm text-white outline-none focus:border-white/25"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-zinc-400 block mb-1">Text vzkazu</label>
+                <textarea
+                  rows={4}
+                  value={editingNote.message}
+                  onChange={(e) =>
+                    setEditingNote({ ...editingNote, message: e.target.value })
+                  }
+                  className="apple-well w-full px-3.5 py-2.5 text-xs text-white outline-none focus:border-white/25 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditingNote(null)}
+                className="flex-1 py-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-xs font-medium text-zinc-300"
+              >
+                Zrušit
+              </button>
+              <button
+                type="submit"
+                disabled={
+                  !editingNote.title.trim() ||
+                  !editingNote.message.trim() ||
+                  busyId === `note-edit-${editingNote.id}`
+                }
+                className="flex-1 py-2.5 rounded-xl bg-white hover:bg-zinc-200 text-zinc-950 text-xs font-semibold disabled:opacity-40"
+              >
+                Uložit
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Edit Service Modal (Název, URL / Kontejner, Obrázek) */}
       {editingService && (

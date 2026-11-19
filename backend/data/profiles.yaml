@@ -1,5 +1,5 @@
 # Konfigurace uživatelských profilů Vykylab Dashboardu
-# Barvy avatara (avatar_color): owl-brown | soft-pink | dark-blue | cyan (příp. hex např. "#c084fc")
+# Barvy avatara (avatar_color): owl-brown | soft-pink | dark-blue | cyan | red (příp. hex např. "#c084fc")
 # Klasický dashboard mají všichni kromě účtu "sudo" (is_admin: true).
 
 profiles:

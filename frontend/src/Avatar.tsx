@@ -23,9 +23,6 @@ export const AVATAR_CONFIG = {
   badge: {
     sizeClass: 'w-12 h-12 rounded-2xl text-lg',
   },
-  pill: {
-    sizeClass: 'w-5 h-5 rounded-full text-[10px]',
-  },
   orb: {
     sizeClass: 'w-36 h-36',
     glowClass: 'w-52 h-52',
@@ -268,11 +265,9 @@ interface AvatarOrbProps {
     has_pin?: boolean;
   };
   interactive?: boolean;
-  roam?: boolean;
   facing?: 'center' | 'left';
   noTrigger?: number;
   sizeClass?: string;
-  eyesRef?: React.RefObject<HTMLDivElement>;
   eyeShiftClass?: string;
   showLock?: boolean;
   onClick?: () => void;
@@ -283,11 +278,9 @@ interface AvatarOrbProps {
 export function AvatarOrb({
   profile,
   interactive = false,
-  roam = true,
   facing = 'center',
   noTrigger = 0,
   sizeClass = AVATAR_CONFIG.orb.sizeClass,
-  eyesRef,
   eyeShiftClass = '',
   showLock = false,
   onClick,
@@ -329,7 +322,6 @@ export function AvatarOrb({
   }, [noTrigger]);
 
   useEffect(() => {
-    if (!roam) return;
     if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       return;
     }
@@ -411,7 +403,7 @@ export function AvatarOrb({
       const nx = current.x / 8.5;
       const ny = current.y / 5.5;
 
-      const eyeEl = eyesRef?.current ?? internalEyesRef.current;
+      const eyeEl = internalEyesRef.current;
       if (eyeEl) {
         eyeEl.style.transform = `translate3d(${current.x.toFixed(2)}px, ${current.y.toFixed(2)}px, 0)`;
       }
@@ -442,7 +434,7 @@ export function AvatarOrb({
       if (nextRoamTimer) window.clearTimeout(nextRoamTimer);
       window.cancelAnimationFrame(rafId);
     };
-  }, [roam, eyesRef, facing]);
+  }, [facing]);
 
   const handleOrbClick = () => {
     if (interactive) {
@@ -533,7 +525,7 @@ export function AvatarOrb({
 
       <div className={eyeShiftClass}>
         <div
-          ref={eyesRef ?? internalEyesRef}
+          ref={internalEyesRef}
           className="will-change-transform"
         >
           {renderFace()}
