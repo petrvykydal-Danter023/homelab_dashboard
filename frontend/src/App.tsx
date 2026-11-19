@@ -592,7 +592,7 @@ export default function App() {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const servicesContainerRef = useRef<HTMLDivElement | null>(null);
   const serviceCardRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
-  const prevCardTopsRef = useRef<Record<string, number>>({});
+  const prevCardRectsRef = useRef<Record<string, { top: number; left: number }>>({});
   const flipCleanupTimersRef = useRef<Record<string, number>>({});
   const noMatchDebounceRef = useRef<number | null>(null);
   const lastNoMatchTriggerRef = useRef(0);
@@ -661,12 +661,15 @@ export default function App() {
       .then((res) => (res.ok ? res.json() : null))
       .then((json: ServiceSearchResponse | null) => {
         if (!json) return;
-        // Snapshot current card positions right before applying new ranked order for 60fps FLIP
-        const snapshot: Record<string, number> = {};
+        // Snapshot current card positions right before applying new ranked order for 60fps 2D FLIP
+        const snapshot: Record<string, { top: number; left: number }> = {};
         Object.entries(serviceCardRefs.current).forEach(([id, el]) => {
-          if (el) snapshot[id] = el.getBoundingClientRect().top;
+          if (el) {
+            const rect = el.getBoundingClientRect();
+            snapshot[id] = { top: rect.top, left: rect.left };
+          }
         });
-        prevCardTopsRef.current = snapshot;
+        prevCardRectsRef.current = snapshot;
         setServiceSearch(json);
         if (servicesContainerRef.current) {
           servicesContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
@@ -760,24 +763,25 @@ export default function App() {
     [orderedServices]
   );
 
-  // 60fps FLIP frame animation when services reorder during search/favorite changes
+  // 60fps 2D FLIP frame animation when services reorder across columns during search/favorite changes
   useLayoutEffect(() => {
-    const prevTops = prevCardTopsRef.current;
-    const hasPrev = Object.keys(prevTops).length > 0;
+    const prevRects = prevCardRectsRef.current;
+    const hasPrev = Object.keys(prevRects).length > 0;
 
     orderedServices.forEach((svc) => {
       const el = serviceCardRefs.current[svc.id];
       if (!el) return;
-      const nextTop = el.getBoundingClientRect().top;
+      const nextRect = el.getBoundingClientRect();
 
-      if (hasPrev && prevTops[svc.id] !== undefined) {
-        const deltaY = prevTops[svc.id] - nextTop;
-        if (Math.abs(deltaY) > 1.5) {
+      if (hasPrev && prevRects[svc.id] !== undefined) {
+        const deltaX = prevRects[svc.id].left - nextRect.left;
+        const deltaY = prevRects[svc.id].top - nextRect.top;
+        if (Math.abs(deltaX) > 1.5 || Math.abs(deltaY) > 1.5) {
           if (flipCleanupTimersRef.current[svc.id]) {
             window.clearTimeout(flipCleanupTimersRef.current[svc.id]);
           }
           el.style.transition = 'none';
-          el.style.transform = `translate3d(0, ${deltaY.toFixed(1)}px, 0)`;
+          el.style.transform = `translate3d(${deltaX.toFixed(1)}px, ${deltaY.toFixed(1)}px, 0)`;
 
           window.requestAnimationFrame(() => {
             window.requestAnimationFrame(() => {
@@ -791,7 +795,7 @@ export default function App() {
           });
         }
       }
-      prevCardTopsRef.current[svc.id] = nextTop;
+      prevCardRectsRef.current[svc.id] = { top: nextRect.top, left: nextRect.left };
     });
   }, [serviceOrderKey]);
 
@@ -1081,7 +1085,7 @@ export default function App() {
           'radial-gradient(ellipse 80% 45% at 50% -10%, rgba(255,255,255,0.065), transparent)',
       }}
     >
-      <div className="max-w-[1400px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 flex-1 min-h-0 flex flex-col gap-5">
+      <div className="max-w-[1400px] min-[1440px]:max-w-[1880px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 flex-1 min-h-0 flex flex-col gap-5">
         {/* ================================================================ */}
         {/* TOP PROFILE HEADER BAR                                           */}
         {/* ================================================================ */}
@@ -1143,9 +1147,9 @@ export default function App() {
           {/* -------------------------------------------------------------- */}
           {/* LEFT COLUMN (HERO GREETING + ZKRATKY & MONITORING)             */}
           {/* -------------------------------------------------------------- */}
-          <div className="lg:col-span-7 flex flex-col gap-5 lg:h-full lg:min-h-0">
+          <div className="lg:col-span-7 min-[1440px]:col-span-5 flex flex-col gap-5 lg:h-full lg:min-h-0">
             {/* 1. Hero Greeting Card */}
-            <section className="group/hero apple-card p-6 sm:p-8 relative overflow-hidden min-h-[260px] flex flex-col justify-between">
+            <section className="group/hero apple-card p-6 pb-36 md:p-8 relative overflow-hidden min-h-[360px] md:min-h-[260px] flex flex-col justify-between">
               {/* Profile Ambient Glow */}
               <div
                 aria-hidden="true"
@@ -1260,8 +1264,8 @@ export default function App() {
               </div>
             </section>
 
-            {/* 2. Bottom Row: Zkratky & Scripty + Monitoring & Nahrát */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 flex-1">
+            {/* 2. Bottom Row: Zkratky & Scripty + Monitoring & Nahrát (hidden on mobile) */}
+            <div className="hidden md:grid md:grid-cols-2 gap-5 flex-1">
               {/* Zkratky & Scripty */}
               <section className="apple-card p-5 flex flex-col justify-between gap-4">
                 <div className="space-y-4">
@@ -1450,7 +1454,7 @@ export default function App() {
           {/* -------------------------------------------------------------- */}
           <div
             ref={servicesContainerRef}
-            className="lg:col-span-5 flex flex-col gap-4 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pt-1.5 lg:-mt-1.5 lg:pb-2 lg:pr-1"
+            className="lg:col-span-5 min-[1440px]:col-span-7 grid grid-cols-1 min-[1440px]:grid-cols-2 content-start gap-4 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pt-1.5 lg:-mt-1.5 lg:pb-2 lg:pr-1"
           >
             {orderedServices.map((svc) => {
               const isFav = profile.favorite_services.includes(svc.id);
@@ -1498,7 +1502,7 @@ export default function App() {
                   )}
 
                   {/* Left: Icon, Name, Status & Favorite Heart */}
-                  <div className="flex flex-col justify-between gap-3 min-w-[140px] z-10">
+                  <div className="flex-1 min-w-0 flex flex-col justify-between gap-3 z-10">
                     <div className="flex items-start gap-3">
                       <div className="w-10 h-10 rounded-2xl bg-white text-zinc-950 flex items-center justify-center shrink-0 shadow-sm group-hover:scale-105 transition-transform">
                         {renderServiceIcon(svc.icon, 'w-5 h-5')}
@@ -1579,7 +1583,7 @@ export default function App() {
                   </div>
 
                   {/* Right: Clean Service Image / Minimal Apple Visual Preview */}
-                  <div className="hidden sm:flex flex-col flex-1 rounded-2xl border border-white/[0.08] bg-[#0b0b0f] overflow-hidden min-w-0 relative shadow-inner">
+                  <div className="hidden sm:flex flex-col w-[45%] max-w-[210px] shrink-0 rounded-2xl border border-white/[0.08] bg-[#0b0b0f] overflow-hidden min-w-0 relative shadow-inner">
                     {svc.image_url ? (
                       <>
                         <img

@@ -415,6 +415,7 @@ struct AppState {
     service_images_dir: PathBuf,
     http: reqwest::Client,
     weather_cache: Arc<RwLock<HashMap<String, WeatherEntry>>>,
+    docker_cache: Arc<RwLock<Option<(Instant, Option<Vec<DockerPsRow>>)>>>,
     store: Arc<RwLock<PersistedStore>>,
     sys: Arc<RwLock<System>>,
 }
@@ -511,6 +512,7 @@ impl AppState {
             service_images_dir,
             http,
             weather_cache: Arc::new(RwLock::new(HashMap::new())),
+            docker_cache: Arc::new(RwLock::new(None)),
             store: Arc::new(RwLock::new(store)),
             sys: Arc::new(RwLock::new(sys)),
         }
@@ -655,7 +657,7 @@ fn default_extra_services() -> Vec<HomelabService> {
             subtitle: "Reverse Proxy & TLS".to_string(),
             status: "running".to_string(),
             uptime: "Up (healthy) · 18d".to_string(),
-            url: "https://traefik.vykylab.local".to_string(),
+            url: "https://traefik.vykylab.dev".to_string(),
             icon: "layers".to_string(),
             image_url: None,
             is_docker: true,
@@ -667,7 +669,7 @@ fn default_extra_services() -> Vec<HomelabService> {
             subtitle: "Správce hesel".to_string(),
             status: "running".to_string(),
             uptime: "Up (healthy) · 18d".to_string(),
-            url: "https://vault.vykylab.local".to_string(),
+            url: "https://vault.vykylab.dev".to_string(),
             icon: "lock".to_string(),
             image_url: None,
             is_docker: true,
@@ -679,7 +681,7 @@ fn default_extra_services() -> Vec<HomelabService> {
             subtitle: "Rodinné kino & média".to_string(),
             status: "running".to_string(),
             uptime: "Up (healthy) · 9d".to_string(),
-            url: "https://media.vykylab.local".to_string(),
+            url: "https://media.vykylab.dev".to_string(),
             icon: "zap".to_string(),
             image_url: None,
             is_docker: true,
@@ -691,7 +693,7 @@ fn default_extra_services() -> Vec<HomelabService> {
             subtitle: "Chytrá domácnost".to_string(),
             status: "running".to_string(),
             uptime: "Up (healthy) · 14d".to_string(),
-            url: "https://ha.vykylab.local".to_string(),
+            url: "https://ha.vykylab.dev".to_string(),
             icon: "zap".to_string(),
             image_url: None,
             is_docker: true,
@@ -703,7 +705,7 @@ fn default_extra_services() -> Vec<HomelabService> {
             subtitle: "Metriky & Telemetrie".to_string(),
             status: "stopped".to_string(),
             uptime: "Exited (0) · 2d".to_string(),
-            url: "https://grafana.vykylab.local".to_string(),
+            url: "https://grafana.vykylab.dev".to_string(),
             icon: "activity".to_string(),
             image_url: None,
             is_docker: true,
@@ -818,7 +820,7 @@ fn default_store() -> PersistedStore {
             subtitle: "Docker Orchestrator".to_string(),
             status: "running".to_string(),
             uptime: "Up (healthy) · 18d".to_string(),
-            url: "https://portainer.vykylab.local".to_string(),
+            url: "https://docker.vykylab.dev".to_string(),
             icon: "container".to_string(),
             image_url: None,
             is_docker: true,
@@ -830,7 +832,7 @@ fn default_store() -> PersistedStore {
             subtitle: "DNS & Filtering".to_string(),
             status: "running".to_string(),
             uptime: "Up (healthy) · 18d".to_string(),
-            url: "https://dns.vykylab.local".to_string(),
+            url: "https://dns.vykylab.dev".to_string(),
             icon: "shield".to_string(),
             image_url: None,
             is_docker: true,
@@ -842,7 +844,7 @@ fn default_store() -> PersistedStore {
             subtitle: "Rodinné fotky & zálohy".to_string(),
             status: "running".to_string(),
             uptime: "Up (healthy) · 12d".to_string(),
-            url: "https://photos.vykylab.local".to_string(),
+            url: "https://photos.vykylab.dev".to_string(),
             icon: "image".to_string(),
             image_url: None,
             is_docker: true,
@@ -1069,6 +1071,136 @@ async fn probe_real_docker_containers() -> Option<Vec<DockerPsRow>> {
     Some(rows)
 }
 
+async fn get_docker_containers_cached(
+    state: &AppState,
+    force_refresh: bool,
+) -> Option<Vec<DockerPsRow>> {
+    const DOCKER_CACHE_TTL: Duration = Duration::from_secs(3);
+
+    if !force_refresh {
+        let cache = state.docker_cache.read().await;
+        if let Some((fetched_at, cached)) = cache.as_ref() {
+            if fetched_at.elapsed() < DOCKER_CACHE_TTL {
+                return cached.clone();
+            }
+        }
+    }
+
+    let fresh = probe_real_docker_containers().await;
+    let mut cache = state.docker_cache.write().await;
+    *cache = Some((Instant::now(), fresh.clone()));
+    fresh
+}
+
+fn infer_docker_url(name: &str) -> String {
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("filebrowser") {
+        "https://files.vykylab.dev".to_string()
+    } else if lower.contains("portainer") {
+        "https://docker.vykylab.dev".to_string()
+    } else if lower.contains("adguard") {
+        "https://dns.vykylab.dev".to_string()
+    } else if lower.contains("dashboard") || lower.contains("caddy") {
+        "https://vykylab.dev".to_string()
+    } else {
+        format!("https://{}.vykylab.dev", name)
+    }
+}
+
+fn merge_store_and_docker_services(
+    store_services_snapshot: &[HomelabService],
+    real_docker_opt: Option<Vec<DockerPsRow>>,
+) -> (bool, Vec<HomelabService>) {
+    if let Some(real_rows) = real_docker_opt {
+        let mut combined: Vec<HomelabService> =
+            Vec::with_capacity(real_rows.len() + store_services_snapshot.len());
+        for row in real_rows {
+            let short_id: String = row.id.chars().take(12).collect();
+            let existing = store_services_snapshot.iter().find(|s| {
+                s.is_docker
+                    && (s.id == format!("docker-{}", short_id)
+                        || s.container_name.as_deref() == Some(row.names.as_str())
+                        || s.name.eq_ignore_ascii_case(&row.names)
+                        || row
+                            .names
+                            .to_ascii_lowercase()
+                            .contains(&s.name.to_ascii_lowercase()))
+            });
+
+            let is_running = row.state.eq_ignore_ascii_case("running");
+            let svc_status = if is_running { "running" } else { "stopped" }.to_string();
+            let svc_uptime = if row.status.trim().is_empty() {
+                svc_status.clone()
+            } else {
+                row.status.clone()
+            };
+            let resolved_url = existing
+                .map(|e| e.url.clone())
+                .filter(|u| !u.contains(".vykylab.local"))
+                .unwrap_or_else(|| infer_docker_url(&row.names));
+
+            combined.push(HomelabService {
+                id: existing
+                    .map(|e| e.id.clone())
+                    .unwrap_or_else(|| format!("docker-{}", short_id)),
+                name: existing
+                    .map(|e| e.name.clone())
+                    .unwrap_or_else(|| row.names.clone()),
+                subtitle: existing
+                    .map(|e| e.subtitle.clone())
+                    .unwrap_or_else(|| row.image.clone()),
+                status: svc_status,
+                uptime: svc_uptime,
+                url: resolved_url,
+                icon: existing
+                    .map(|e| e.icon.clone())
+                    .unwrap_or_else(|| infer_docker_icon(&row.names, &row.image)),
+                image_url: existing.and_then(|e| e.image_url.clone()),
+                is_docker: true,
+                container_name: Some(row.names.clone()),
+            });
+        }
+
+        // Append non-Docker user links / custom cards and sync any linked container status
+        for s in store_services_snapshot {
+            if !s.is_docker {
+                let mut cloned = s.clone();
+                if let Some(ref cname) = s.container_name {
+                    if let Some(target) = combined.iter().find(|d| {
+                        d.is_docker
+                            && (d.id == *cname
+                                || d.name.eq_ignore_ascii_case(cname)
+                                || d.container_name.as_deref() == Some(cname.as_str()))
+                    }) {
+                        cloned.status = target.status.clone();
+                        cloned.uptime = target.uptime.clone();
+                    }
+                }
+                combined.push(cloned);
+            }
+        }
+        (true, combined)
+    } else {
+        let fallback: Vec<HomelabService> = store_services_snapshot
+            .iter()
+            .map(|s| {
+                if let Some(ref cname) = s.container_name {
+                    if let Some(target) = store_services_snapshot.iter().find(|d| {
+                        d.is_docker && (d.id == *cname || d.name.eq_ignore_ascii_case(cname))
+                    }) {
+                        let mut cloned = s.clone();
+                        cloned.status = target.status.clone();
+                        cloned.uptime = target.uptime.clone();
+                        return cloned;
+                    }
+                }
+                s.clone()
+            })
+            .collect();
+        (false, fallback)
+    }
+}
+
 fn infer_docker_icon(name: &str, image: &str) -> String {
     let hay = format!("{} {}", name.to_ascii_lowercase(), image.to_ascii_lowercase());
     if hay.contains("adguard") || hay.contains("pihole") || hay.contains("guard") {
@@ -1265,90 +1397,12 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
     drop(store);
 
     let (real_docker_opt, weather_summary) = tokio::join!(
-        probe_real_docker_containers(),
+        get_docker_containers_cached(state, false),
         resolve_weather_for_location(state, &active_location, &fallback_weather)
     );
 
-    let (docker_live, synced_services) = if let Some(real_rows) = real_docker_opt {
-        let mut combined: Vec<HomelabService> = Vec::with_capacity(real_rows.len() + store_services_snapshot.len());
-        for row in real_rows {
-            let short_id: String = row.id.chars().take(12).collect();
-            let existing = store_services_snapshot.iter().find(|s| {
-                s.is_docker
-                    && (s.id == format!("docker-{}", short_id)
-                        || s.container_name.as_deref() == Some(row.names.as_str())
-                        || s.name.eq_ignore_ascii_case(&row.names)
-                        || row.names.to_ascii_lowercase().contains(&s.name.to_ascii_lowercase()))
-            });
-
-            let is_running = row.state.eq_ignore_ascii_case("running");
-            let svc_status = if is_running { "running" } else { "stopped" }.to_string();
-            let svc_uptime = if row.status.trim().is_empty() {
-                svc_status.clone()
-            } else {
-                row.status.clone()
-            };
-
-            combined.push(HomelabService {
-                id: existing
-                    .map(|e| e.id.clone())
-                    .unwrap_or_else(|| format!("docker-{}", short_id)),
-                name: existing
-                    .map(|e| e.name.clone())
-                    .unwrap_or_else(|| row.names.clone()),
-                subtitle: existing
-                    .map(|e| e.subtitle.clone())
-                    .unwrap_or_else(|| row.image.clone()),
-                status: svc_status.clone(),
-                uptime: svc_uptime,
-                url: existing
-                    .map(|e| e.url.clone())
-                    .unwrap_or_else(|| format!("https://{}.vykylab.local", row.names)),
-                icon: existing
-                    .map(|e| e.icon.clone())
-                    .unwrap_or_else(|| infer_docker_icon(&row.names, &row.image)),
-                image_url: existing.and_then(|e| e.image_url.clone()),
-                is_docker: true,
-                container_name: Some(row.names.clone()),
-            });
-        }
-
-        // Append non-Docker user links / custom cards and sync any linked container status
-        for s in &store_services_snapshot {
-            if !s.is_docker {
-                let mut cloned = s.clone();
-                if let Some(ref cname) = s.container_name {
-                    if let Some(target) = combined.iter().find(|d| {
-                        d.is_docker && (d.id == *cname || d.name.eq_ignore_ascii_case(cname) || d.container_name.as_deref() == Some(cname.as_str()))
-                    }) {
-                        cloned.status = target.status.clone();
-                        cloned.uptime = target.uptime.clone();
-                    }
-                }
-                combined.push(cloned);
-            }
-        }
-        (true, combined)
-    } else {
-        let fallback: Vec<HomelabService> = store_services_snapshot
-            .iter()
-            .map(|s| {
-                if let Some(ref cname) = s.container_name {
-                    if let Some(target) = store_services_snapshot
-                        .iter()
-                        .find(|d| d.is_docker && (d.id == *cname || d.name.eq_ignore_ascii_case(cname)))
-                    {
-                        let mut cloned = s.clone();
-                        cloned.status = target.status.clone();
-                        cloned.uptime = target.uptime.clone();
-                        return cloned;
-                    }
-                }
-                s.clone()
-            })
-            .collect();
-        (false, fallback)
-    };
+    let (docker_live, synced_services) =
+        merge_store_and_docker_services(&store_services_snapshot, real_docker_opt);
 
     let any_stopped = synced_services
         .iter()
@@ -1600,10 +1654,17 @@ async fn search_services(
         .profiles
         .iter()
         .find(|p| p.id == store.active_profile_id)
-        .and_then(|p| p.visible_services.as_ref());
+        .and_then(|p| p.visible_services.clone());
+    let store_services_snapshot = store.services.clone();
+    drop(store);
 
-    let visible_services_iter = store.services.iter().filter(|svc| {
+    let real_docker_opt = get_docker_containers_cached(&state, false).await;
+    let (_docker_live, synced_services) =
+        merge_store_and_docker_services(&store_services_snapshot, real_docker_opt);
+
+    let visible_services_iter = synced_services.iter().filter(|svc| {
         visible_filter
+            .as_ref()
             .map(|ids| ids.iter().any(|id| id == &svc.id))
             .unwrap_or(true)
     });
@@ -1627,6 +1688,11 @@ async fn search_services(
         .enumerate()
         .map(|(idx, svc)| {
             let name_f = fold_czech_ascii(&svc.name);
+            let cname_f = svc
+                .container_name
+                .as_deref()
+                .map(fold_czech_ascii)
+                .unwrap_or_default();
             let sub_f = fold_czech_ascii(&svc.subtitle);
             let url_clean = svc
                 .url
@@ -1637,7 +1703,7 @@ async fn search_services(
             let status_aliases = if svc.status == "running" {
                 "running bezi online aktivni up healthy ok"
             } else {
-                "stopped vypnuto offline exited stop down"
+                "stopped vypnuto offline exited stop down restarting restart error"
             };
 
             let mut total_score = 0u32;
@@ -1648,6 +1714,8 @@ async fn search_services(
                 let phrase = tokens.join(" ");
                 if name_f.contains(&phrase) {
                     total_score += 240;
+                } else if !cname_f.is_empty() && cname_f.contains(&phrase) {
+                    total_score += 180;
                 } else if sub_f.contains(&phrase) {
                     total_score += 140;
                 }
@@ -1655,15 +1723,17 @@ async fn search_services(
 
             for tok in &tokens {
                 let s_name = score_token_in_field(tok, &name_f) * 4;
+                let s_cname = score_token_in_field(tok, &cname_f) * 3;
                 let s_sub = score_token_in_field(tok, &sub_f) * 2;
                 let s_url = (score_token_in_field(tok, &url_f) * 18) / 10;
                 let s_status = (score_token_in_field(tok, status_aliases) * 11) / 10
                     + (score_token_in_field(tok, &uptime_f) * 10) / 10;
 
-                let tok_best = s_name.max(s_sub).max(s_url).max(s_status);
+                let tok_best = s_name.max(s_cname).max(s_sub).max(s_url).max(s_status);
                 if tok_best > 0 {
                     matched_tokens += 1;
-                    let secondary = (s_name + s_sub + s_url + s_status - tok_best) / 5;
+                    let secondary =
+                        (s_name + s_cname + s_sub + s_url + s_status - tok_best) / 5;
                     total_score += tok_best + secondary;
                     matched_terms.push(tok.clone());
                 }
@@ -2182,7 +2252,7 @@ async fn service_action(
     }
 
     // Check if real Docker Engine is reachable
-    if let Some(real_rows) = probe_real_docker_containers().await {
+    if let Some(real_rows) = get_docker_containers_cached(&state, true).await {
         let store_snap = state.store.read().await;
         let resolved_name = resolve_docker_target_name(&service_id, &store_snap.services);
         drop(store_snap);
@@ -2206,6 +2276,7 @@ async fn service_action(
                 .await;
 
             if let Ok(out) = cmd_res {
+                *state.docker_cache.write().await = None;
                 return (
                     StatusCode::OK,
                     Json(serde_json::json!({ "ok": out.status.success(), "dashboard": build_dashboard(&state).await })),
@@ -2711,6 +2782,212 @@ async fn delete_noticeboard_item(
     )
 }
 
+async fn run_update_step(program: &str, args: &[&str], dir: &StdPath) -> (bool, String) {
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(args).current_dir(dir);
+    match cmd.output().await {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let combined = match (stdout.is_empty(), stderr.is_empty()) {
+                (false, true) => stdout,
+                (true, false) => stderr,
+                (false, false) => format!("{}\n{}", stdout, stderr),
+                (true, true) => String::new(),
+            };
+            (out.status.success(), combined)
+        }
+        Err(e) => (false, format!("Chyba spuštění '{}': {}", program, e)),
+    }
+}
+
+async fn admin_github_update(State(state): State<AppState>) -> impl IntoResponse {
+    let store = state.store.read().await;
+    let is_admin = store
+        .profiles
+        .iter()
+        .find(|p| p.id == store.active_profile_id)
+        .is_some_and(|p| p.is_admin);
+    if !is_admin {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "ok": false, "message": "Vyžadován admin profil sudo." })),
+        );
+    }
+    let store_snapshot = store.clone();
+    drop(store);
+
+    let repo_root = if StdPath::new("../.git").exists() {
+        PathBuf::from("..")
+    } else {
+        PathBuf::from(".")
+    };
+    let frontend_dir = repo_root.join("frontend");
+    let backend_dir = repo_root.join("backend");
+
+    let mut logs: Vec<String> = Vec::new();
+    let (_, old_commit_raw) =
+        run_update_step("git", &["rev-parse", "--short", "HEAD"], &repo_root).await;
+    let old_commit = if old_commit_raw.is_empty() {
+        "unknown".to_string()
+    } else {
+        old_commit_raw
+    };
+    logs.push(format!("$ git rev-parse --short HEAD -> {}", old_commit));
+
+    let _ = run_update_step(
+        "git",
+        &["checkout", "--", "backend/data/store.json", "backend/data/profiles.yaml"],
+        &repo_root,
+    )
+    .await;
+
+    let (pull_ok, pull_out) =
+        run_update_step("git", &["pull", "--ff-only", "origin", "main"], &repo_root).await;
+    logs.push(format!(
+        "$ git pull --ff-only origin main\n{}",
+        if pull_out.is_empty() {
+            "(bez výstupu)".to_string()
+        } else {
+            pull_out
+        }
+    ));
+
+    let (_, new_commit_raw) =
+        run_update_step("git", &["rev-parse", "--short", "HEAD"], &repo_root).await;
+    let new_commit = if new_commit_raw.is_empty() {
+        old_commit.clone()
+    } else {
+        new_commit_raw
+    };
+
+    // Always restore runtime store & profiles.yaml so user state is never lost
+    state.persist(&store_snapshot).await;
+
+    if !pull_ok {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "ok": false,
+                "updated": false,
+                "old_commit": old_commit,
+                "new_commit": new_commit,
+                "restarting": false,
+                "message": "Git pull z GitHubu selhal.",
+                "output": logs.join("\n\n"),
+            })),
+        );
+    }
+
+    let updated = old_commit != new_commit;
+
+    if frontend_dir.exists() {
+        let (fe_ok, fe_out) = run_update_step("npm", &["run", "build"], &frontend_dir).await;
+        logs.push(format!(
+            "$ npm run build (frontend)\n{}",
+            if fe_out.is_empty() {
+                "Hotovo.".to_string()
+            } else {
+                fe_out
+            }
+        ));
+        if !fe_ok {
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "ok": false,
+                    "updated": updated,
+                    "old_commit": old_commit,
+                    "new_commit": new_commit,
+                    "restarting": false,
+                    "message": "Build frontendu (npm run build) selhal.",
+                    "output": logs.join("\n\n"),
+                })),
+            );
+        }
+    }
+
+    let cargo_bin = std::env::var("HOME")
+        .ok()
+        .map(|h| format!("{}/.cargo/bin/cargo", h))
+        .filter(|p| StdPath::new(p).exists())
+        .unwrap_or_else(|| "cargo".to_string());
+
+    let build_dir = if backend_dir.exists() {
+        backend_dir.as_path()
+    } else {
+        StdPath::new(".")
+    };
+    let (be_ok, be_out) = run_update_step(&cargo_bin, &["build"], build_dir).await;
+    logs.push(format!(
+        "$ cargo build (backend)\n{}",
+        if be_out.is_empty() {
+            "Hotovo.".to_string()
+        } else {
+            be_out
+        }
+    ));
+    if !be_ok {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "ok": false,
+                "updated": updated,
+                "old_commit": old_commit,
+                "new_commit": new_commit,
+                "restarting": false,
+                "message": "Build Rust backendu (cargo build) selhal.",
+                "output": logs.join("\n\n"),
+            })),
+        );
+    }
+
+    let mut restarting = false;
+    if updated {
+        if let Ok(exe) = std::env::current_exe() {
+            let args: Vec<String> = std::env::args().skip(1).collect();
+            restarting = true;
+            logs.push(format!(
+                "Nový commit {} -> {}: restartuji backend proces ({})...",
+                old_commit,
+                new_commit,
+                exe.display()
+            ));
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(450)).await;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::process::CommandExt;
+                    let err = std::process::Command::new(&exe).args(&args).exec();
+                    eprintln!("Nepodařilo se restartovat backend pomocí exec: {}", err);
+                }
+            });
+        }
+    }
+
+    let message = if updated {
+        format!(
+            "Aktualizováno z {} na {} — backend se restartuje.",
+            old_commit, new_commit
+        )
+    } else {
+        format!("Vše je aktuální (commit {}).", new_commit)
+    };
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "ok": true,
+            "updated": updated,
+            "old_commit": old_commit,
+            "new_commit": new_commit,
+            "restarting": restarting,
+            "message": message,
+            "output": logs.join("\n\n"),
+        })),
+    )
+}
+
 // ============================================================================
 // Main Entry
 // ============================================================================
@@ -2744,6 +3021,7 @@ async fn main() {
         .route("/api/system/check", post(run_system_check))
         .route("/api/upload", post(upload_file))
         .route("/api/admin/exec", post(admin_exec))
+        .route("/api/admin/update", post(admin_github_update))
         .route("/api/admin/ssh/connections", post(add_ssh_connection))
         .route("/api/admin/ssh/connections/:id", delete(delete_ssh_connection))
         .route("/api/admin/ssh/connections/:id/activate", post(activate_ssh_connection))

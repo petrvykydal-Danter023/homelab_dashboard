@@ -173,6 +173,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     icon: string;
     image_url: string;
   } | null>(null);
+  const [githubUpdating, setGithubUpdating] = useState(false);
+  const [githubUpdateModal, setGithubUpdateModal] = useState<{
+    ok: boolean;
+    message: string;
+    old_commit?: string;
+    new_commit?: string;
+    restarting?: boolean;
+    output: string;
+  } | null>(null);
 
   useEffect(() => {
     if (selectedProfile) {
@@ -545,6 +554,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const handleGithubUpdate = async () => {
+    setGithubUpdating(true);
+    try {
+      const res = await fetch('/api/admin/update', { method: 'POST' });
+      const json = await res.json();
+      setGithubUpdateModal({
+        ok: Boolean(json.ok),
+        message: json.message || (json.ok ? 'Aktualizace dokončena.' : 'Aktualizace selhala.'),
+        old_commit: json.old_commit,
+        new_commit: json.new_commit,
+        restarting: Boolean(json.restarting),
+        output: json.output || '',
+      });
+      onShowToast(Boolean(json.ok), json.message || 'Aktualizace z GitHubu dokončena.');
+      if (json.ok) {
+        if (json.restarting) {
+          window.setTimeout(() => {
+            void onRefresh();
+          }, 1200);
+        } else {
+          await onRefresh();
+        }
+      }
+    } catch {
+      setGithubUpdateModal({
+        ok: false,
+        message: 'Nepodařilo se spojit s backendem při aktualizaci z GitHubu.',
+        output: 'Chyba sítě při volání POST /api/admin/update.',
+      });
+      onShowToast(false, 'Chyba komunikace při aktualizaci.');
+    } finally {
+      setGithubUpdating(false);
+    }
+  };
+
   const openDockerLogs = async (svc: HomelabService) => {
     setBusyId(`logs-${svc.id}`);
     try {
@@ -791,6 +835,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 })}
               </nav>
             </div>
+
+            <button
+              type="button"
+              onClick={() => void handleGithubUpdate()}
+              disabled={githubUpdating}
+              className="px-3.5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/[0.12] text-xs font-semibold text-white flex items-center gap-2 transition-all disabled:opacity-50 shrink-0"
+              title="Stáhnout nejnovější změny z GitHubu (git pull + build + restart)"
+            >
+              {githubUpdating ? (
+                <RefreshCw className="w-3.5 h-3.5 text-cyan-300 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5 text-cyan-300" />
+              )}
+              <span>{githubUpdating ? 'Aktualizuji...' : 'Aktualizovat z GitHubu'}</span>
+            </button>
           </div>
         </header>
 
@@ -3371,6 +3430,70 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================== */}
+      {/* MODAL: GITHUB UPDATE RESULT                                        */}
+      {/* ================================================================== */}
+      {githubUpdateModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="apple-card w-full max-w-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                    githubUpdateModal.ok
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
+                      : 'bg-rose-500/20 text-rose-300 border border-rose-400/30'
+                  }`}
+                >
+                  {githubUpdateModal.ok ? (
+                    <Check className="w-4 h-4" />
+                  ) : (
+                    <X className="w-4 h-4" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold text-white truncate">
+                    Aktualizace z GitHubu
+                  </h2>
+                  <p className="text-xs text-zinc-400 truncate">
+                    {githubUpdateModal.message}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {githubUpdateModal.old_commit && githubUpdateModal.new_commit && (
+                  <span className="px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/[0.1] text-[11px] font-mono text-cyan-300">
+                    {githubUpdateModal.old_commit} → {githubUpdateModal.new_commit}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setGithubUpdateModal(null)}
+                  className="p-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-zinc-300"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <pre className="apple-well p-4 text-[11px] font-mono text-zinc-200 whitespace-pre-wrap break-words max-h-80 overflow-y-auto">
+              {githubUpdateModal.output || 'Hotovo.'}
+            </pre>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setGithubUpdateModal(null)}
+                className="px-4 py-2 rounded-xl bg-white hover:bg-zinc-200 text-zinc-950 font-semibold text-xs transition-colors"
+              >
+                Zavřít
+              </button>
+            </div>
           </div>
         </div>
       )}
