@@ -1,5 +1,8 @@
 use axum::{
-    extract::{Multipart, Path, Query, State},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Multipart, Path, Query, State,
+    },
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{delete, get, post, put},
@@ -3014,6 +3017,292 @@ async fn admin_exec(
     )
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PtyWsQuery {
+    pub connection_id: Option<String>,
+    pub profile_id: Option<String>,
+    pub cols: Option<u16>,
+    pub rows: Option<u16>,
+}
+
+async fn admin_pty_ws(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<PtyWsQuery>,
+) -> impl IntoResponse {
+    let req_profile = q
+        .profile_id
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| extract_requested_profile(&headers));
+    let store = state.store.read().await;
+    let is_admin = resolve_profile_for_request(&store, req_profile.as_deref()).is_admin;
+    let conn_id = q
+        .connection_id
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(&store.ssh.active_connection_id);
+    let active_conn = store
+        .ssh
+        .connections
+        .iter()
+        .find(|c| c.id == conn_id)
+        .cloned()
+        .unwrap_or_else(|| store.ssh.connections[0].clone());
+    drop(store);
+
+    if !is_admin {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "ok": false, "output": "Vyžadován admin profil sudo." })),
+        )
+            .into_response();
+    }
+
+    let cols = q.cols.unwrap_or(100).max(20);
+    let rows = q.rows.unwrap_or(28).max(5);
+    ws.on_upgrade(move |socket| handle_pty_socket(socket, active_conn, cols, rows))
+        .into_response()
+}
+
+#[cfg(unix)]
+async fn handle_pty_socket(mut socket: WebSocket, conn: SshConnection, cols: u16, rows: u16) {
+    use std::io::{Read, Write};
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::process::Stdio;
+
+    let mut master_fd: libc::c_int = -1;
+    let mut slave_fd: libc::c_int = -1;
+    let ws_size = libc::winsize {
+        ws_row: rows.max(5),
+        ws_col: cols.max(20),
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+
+    let open_res = unsafe {
+        libc::openpty(
+            &mut master_fd,
+            &mut slave_fd,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &ws_size as *const libc::winsize as *mut libc::winsize,
+        )
+    };
+    if open_res != 0 || master_fd < 0 || slave_fd < 0 {
+        let _ = socket
+            .send(Message::Text(
+                "\r\n\x1b[31mChyba: Nepodařilo se otevřít Linux PTY (openpty).\x1b[0m\r\n"
+                    .to_string(),
+            ))
+            .await;
+        return;
+    }
+
+    unsafe {
+        libc::fcntl(master_fd, libc::F_SETFD, libc::FD_CLOEXEC);
+        libc::fcntl(slave_fd, libc::F_SETFD, libc::FD_CLOEXEC);
+    }
+
+    let stdin_fd = unsafe { libc::dup(slave_fd) };
+    let stdout_fd = unsafe { libc::dup(slave_fd) };
+    let stderr_fd = unsafe { libc::dup(slave_fd) };
+    if stdin_fd < 0 || stdout_fd < 0 || stderr_fd < 0 {
+        unsafe {
+            if stdin_fd >= 0 {
+                libc::close(stdin_fd);
+            }
+            if stdout_fd >= 0 {
+                libc::close(stdout_fd);
+            }
+            if stderr_fd >= 0 {
+                libc::close(stderr_fd);
+            }
+            libc::close(master_fd);
+            libc::close(slave_fd);
+        }
+        return;
+    }
+
+    let mut cmd = if conn.mode == "ssh" {
+        let mut p = tokio::process::Command::new("ssh");
+        p.arg("-tt")
+            .arg("-o")
+            .arg("ConnectTimeout=5")
+            .arg("-p")
+            .arg(conn.port.to_string());
+        if let Some(key_path) = conn.identity_file.as_ref().filter(|s| !s.is_empty()) {
+            p.arg("-i").arg(key_path);
+        }
+        p.arg(format!("{}@{}", conn.user, conn.host));
+        p
+    } else {
+        let mut p = tokio::process::Command::new("bash");
+        p.arg("-i");
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/petr".to_string());
+        p.current_dir(home);
+        p
+    };
+
+    cmd.env("TERM", "xterm-256color")
+        .env("COLORTERM", "truecolor");
+
+    unsafe {
+        cmd.stdin(Stdio::from_raw_fd(stdin_fd))
+            .stdout(Stdio::from_raw_fd(stdout_fd))
+            .stderr(Stdio::from_raw_fd(stderr_fd));
+
+        cmd.pre_exec(move || {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::ioctl(0, libc::TIOCSCTTY as _, 0) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+
+    let spawn_res = cmd.spawn();
+    unsafe {
+        libc::close(slave_fd);
+    }
+
+    let mut child = match spawn_res {
+        Ok(c) => c,
+        Err(e) => {
+            unsafe {
+                libc::close(master_fd);
+            }
+            let _ = socket
+                .send(Message::Text(format!(
+                    "\r\n\x1b[31mChyba spuštění shellu: {}\x1b[0m\r\n",
+                    e
+                )))
+                .await;
+            return;
+        }
+    };
+
+    let master_file = unsafe { std::fs::File::from_raw_fd(master_fd) };
+    let mut master_reader = match master_file.try_clone() {
+        Ok(f) => f,
+        Err(e) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            let _ = socket
+                .send(Message::Text(format!(
+                    "\r\n\x1b[31mChyba PTY try_clone: {}\x1b[0m\r\n",
+                    e
+                )))
+                .await;
+            return;
+        }
+    };
+    let mut master_writer = master_file;
+    let raw_master_fd = master_writer.as_raw_fd();
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
+    let reader_handle = tokio::task::spawn_blocking(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match master_reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if tx.blocking_send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    loop {
+        tokio::select! {
+            maybe_chunk = rx.recv() => {
+                match maybe_chunk {
+                    Some(chunk) => {
+                        if socket.send(Message::Binary(chunk)).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => {
+                        let _ = socket
+                            .send(Message::Text(
+                                "\r\n\x1b[33m[Shell ukončen]\x1b[0m\r\n".to_string(),
+                            ))
+                            .await;
+                        break;
+                    }
+                }
+            }
+            maybe_ws = socket.recv() => {
+                match maybe_ws {
+                    Some(Ok(Message::Text(txt))) => {
+                        if txt.trim_start().starts_with('{') {
+                            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&txt) {
+                                match val.get("type").and_then(|t| t.as_str()) {
+                                    Some("resize") => {
+                                        let c = val.get("cols").and_then(|v| v.as_u64()).unwrap_or(100) as u16;
+                                        let r = val.get("rows").and_then(|v| v.as_u64()).unwrap_or(28) as u16;
+                                        let new_ws = libc::winsize {
+                                            ws_row: r.max(5),
+                                            ws_col: c.max(20),
+                                            ws_xpixel: 0,
+                                            ws_ypixel: 0,
+                                        };
+                                        unsafe {
+                                            libc::ioctl(raw_master_fd, libc::TIOCSWINSZ, &new_ws);
+                                        }
+                                    }
+                                    Some("input") => {
+                                        if let Some(data) = val.get("data").and_then(|v| v.as_str()) {
+                                            let _ = master_writer.write_all(data.as_bytes());
+                                            let _ = master_writer.flush();
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                                continue;
+                            }
+                        }
+                        let _ = master_writer.write_all(txt.as_bytes());
+                        let _ = master_writer.flush();
+                    }
+                    Some(Ok(Message::Binary(bin))) => {
+                        let _ = master_writer.write_all(&bin);
+                        let _ = master_writer.flush();
+                    }
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    if let Some(pid) = child.id() {
+        unsafe {
+            libc::kill(-(pid as libc::pid_t), libc::SIGHUP);
+            libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+        }
+    }
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+    drop(master_writer);
+    let _ = reader_handle.await;
+}
+
+#[cfg(not(unix))]
+async fn handle_pty_socket(mut socket: WebSocket, _conn: SshConnection, _cols: u16, _rows: u16) {
+    let _ = socket
+        .send(Message::Text(
+            "WebSocket PTY vyžaduje Linux/Unix host.\r\n".to_string(),
+        ))
+        .await;
+}
+
 async fn create_noticeboard_item(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -3374,6 +3663,7 @@ async fn main() {
         .route("/api/system/check", post(run_system_check))
         .route("/api/upload", post(upload_file))
         .route("/api/admin/exec", post(admin_exec))
+        .route("/api/admin/pty", get(admin_pty_ws))
         .route("/api/admin/update", post(admin_github_update))
         .route("/api/admin/ssh/connections", post(add_ssh_connection))
         .route("/api/admin/ssh/connections/:id", delete(delete_ssh_connection))

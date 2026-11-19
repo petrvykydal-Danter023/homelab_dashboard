@@ -1,4 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Terminal as XTerm } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
 import {
   Activity,
   ArrowDownUp,
@@ -117,7 +120,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     service: HomelabService;
     output: string;
   } | null>(null);
-  const [sshInput, setSshInput] = useState('');
   const [hoveredSshConn, setHoveredSshConn] = useState<SshConnection | null>(null);
   const [sshSettingsOpen, setSshSettingsOpen] = useState(false);
   const [sshSettingsTab, setSshSettingsTab] = useState<'connections' | 'shortcuts'>('connections');
@@ -129,24 +131,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newConnMode, setNewConnMode] = useState<'ssh' | 'local'>('ssh');
   const [newScLabel, setNewScLabel] = useState('');
   const [newScCmd, setNewScCmd] = useState('');
-  const [cmdHistoryIdx, setCmdHistoryIdx] = useState<number>(-1);
-  const [sshRunning, setSshRunning] = useState(false);
-  const [sshIsRoot, setSshIsRoot] = useState(false);
-  const [sshCwd, setSshCwd] = useState<string>('~');
-  const [sshHistory, setSshHistory] = useState<
-    {
-      id: number;
-      cmd: string;
-      output: string;
-      ok: boolean;
-      target?: string;
-      duration_ms?: number;
-      exit_code?: number;
-      is_root?: boolean;
-      cwd?: string;
-    }[]
-  >([]);
-  const sshEndRef = useRef<HTMLDivElement | null>(null);
+  const [ptyConnected, setPtyConnected] = useState(false);
+  const [ptyStatusText, setPtyStatusText] = useState<
+    'connecting' | 'connected' | 'closed' | 'error'
+  >('connecting');
+  const [ptyReconnectSeq, setPtyReconnectSeq] = useState(0);
+  const ptyContainerRef = useRef<HTMLDivElement | null>(null);
+  const xtermRef = useRef<XTerm | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
+  const ptyWsRef = useRef<WebSocket | null>(null);
+  const pendingPtyCommandRef = useRef<string | null>(null);
 
   // Profiles & Service Visibility + Service Media state (exclude admin/sudo)
   const manageableProfiles = data.profiles.filter((p) => !p.is_admin);
@@ -620,78 +614,165 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const runSshCommand = async (cmd: string) => {
+  useEffect(() => {
+    if (activeTab !== 'ssh') {
+      return;
+    }
+    const container = ptyContainerRef.current;
+    if (!container) return;
+
+    setPtyConnected(false);
+    setPtyStatusText('connecting');
+
+    const term = new XTerm({
+      cursorBlink: true,
+      fontFamily:
+        '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+      fontSize: 13,
+      lineHeight: 1.35,
+      scrollback: 5000,
+      convertEol: false,
+      theme: {
+        background: '#0a0a0d',
+        foreground: '#e4e4e7',
+        cursor: '#22d3ee',
+        cursorAccent: '#09090b',
+        selectionBackground: 'rgba(34, 211, 238, 0.25)',
+        black: '#18181b',
+        red: '#fb7185',
+        green: '#34d399',
+        yellow: '#fbbf24',
+        blue: '#60a5fa',
+        magenta: '#c084fc',
+        cyan: '#22d3ee',
+        white: '#e4e4e7',
+        brightBlack: '#52525b',
+        brightRed: '#fda4af',
+        brightGreen: '#6ee7b7',
+        brightYellow: '#fde68a',
+        brightBlue: '#93c5fd',
+        brightMagenta: '#d8b4fe',
+        brightCyan: '#67e8f9',
+        brightWhite: '#ffffff',
+      },
+    });
+
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(container);
+
+    const fitNow = () => {
+      try {
+        fitAddon.fit();
+      } catch {
+        // Ignore fit measurements before layout settles
+      }
+    };
+    fitNow();
+    const rafId = window.requestAnimationFrame(fitNow);
+
+    xtermRef.current = term;
+    fitAddonRef.current = fitAddon;
+
+    const activeConnId =
+      data.ssh.active_connection_id || data.ssh.connections[0]?.id || 'ssh-local';
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProto}//${window.location.host}/api/admin/pty?connection_id=${encodeURIComponent(
+      activeConnId
+    )}&profile_id=${encodeURIComponent(data.active_profile.id)}&cols=${
+      term.cols || 100
+    }&rows=${term.rows || 28}`;
+
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+    ptyWsRef.current = ws;
+
+    ws.onopen = () => {
+      setPtyConnected(true);
+      setPtyStatusText('connected');
+      fitNow();
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        if (pendingPtyCommandRef.current) {
+          const pending = pendingPtyCommandRef.current;
+          pendingPtyCommandRef.current = null;
+          ws.send(JSON.stringify({ type: 'input', data: `${pending}\r` }));
+        }
+      }
+      term.focus();
+    };
+
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === 'string') {
+        term.write(ev.data);
+      } else if (ev.data instanceof ArrayBuffer) {
+        term.write(new Uint8Array(ev.data));
+      }
+    };
+
+    ws.onerror = () => {
+      setPtyConnected(false);
+      setPtyStatusText('error');
+    };
+
+    ws.onclose = () => {
+      setPtyConnected(false);
+      setPtyStatusText((prev) => (prev === 'error' ? 'error' : 'closed'));
+    };
+
+    const dataSub = term.onData((input) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'input', data: input }));
+      }
+    });
+
+    const resizeSub = term.onResize(({ cols, rows }) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+      }
+    });
+
+    const resizeObserver = new ResizeObserver(() => {
+      fitNow();
+    });
+    resizeObserver.observe(container);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      resizeObserver.disconnect();
+      dataSub.dispose();
+      resizeSub.dispose();
+      if (ptyWsRef.current === ws) {
+        ptyWsRef.current = null;
+      }
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+      term.dispose();
+      xtermRef.current = null;
+      fitAddonRef.current = null;
+      setPtyConnected(false);
+    };
+  }, [activeTab, data.ssh.active_connection_id, data.active_profile.id, ptyReconnectSeq]);
+
+  const sendPtyInput = (raw: string): boolean => {
+    const ws = ptyWsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'input', data: raw }));
+      xtermRef.current?.focus();
+      return true;
+    }
+    return false;
+  };
+
+  const runSshCommand = (cmd: string) => {
     const trimmed = cmd.trim();
     if (!trimmed) return;
     if (trimmed === 'clear') {
-      setSshHistory([]);
-      setSshInput('');
-      return;
+      xtermRef.current?.clear();
     }
-    setSshRunning(true);
-    setSshInput('');
-    setCmdHistoryIdx(-1);
-    try {
-      const res = await fetch('/api/admin/exec', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          command: trimmed,
-          connection_id: data.ssh.active_connection_id,
-        }),
-      });
-      const json = await res.json();
-      if (typeof json.is_root === 'boolean') setSshIsRoot(json.is_root);
-      if (typeof json.cwd === 'string') setSshCwd(json.cwd);
-      setSshHistory((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          cmd: trimmed,
-          output: json.output || 'Hotovo.',
-          ok: Boolean(json.ok),
-          target: json.target,
-          duration_ms: json.duration_ms,
-          exit_code: json.exit_code,
-          is_root: typeof json.is_root === 'boolean' ? json.is_root : sshIsRoot,
-          cwd: typeof json.cwd === 'string' ? json.cwd : sshCwd,
-        },
-      ]);
-      window.setTimeout(() => sshEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 40);
-    } catch {
-      setSshHistory((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          cmd: trimmed,
-          output: 'Chyba komunikace se serverem.',
-          ok: false,
-        },
-      ]);
-    } finally {
-      setSshRunning(false);
-    }
-  };
-
-  const handleSshKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (sshHistory.length === 0) return;
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      const nextIdx =
-        cmdHistoryIdx < 0 ? sshHistory.length - 1 : Math.max(0, cmdHistoryIdx - 1);
-      setCmdHistoryIdx(nextIdx);
-      setSshInput(sshHistory[nextIdx]?.cmd || '');
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (cmdHistoryIdx < 0) return;
-      const nextIdx = cmdHistoryIdx + 1;
-      if (nextIdx >= sshHistory.length) {
-        setCmdHistoryIdx(-1);
-        setSshInput('');
-      } else {
-        setCmdHistoryIdx(nextIdx);
-        setSshInput(sshHistory[nextIdx]?.cmd || '');
-      }
+    if (!sendPtyInput(`${trimmed}\r`)) {
+      pendingPtyCommandRef.current = trimmed;
     }
   };
 
@@ -703,8 +784,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         { method: 'POST' }
       );
       if (res.ok) {
-        setSshIsRoot(false);
-        setSshCwd('~');
         await onRefresh();
         onShowToast(true, 'SSH profil aktivován.');
       }
@@ -1572,16 +1651,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           const activeConn =
             data.ssh.connections.find((c) => c.id === data.ssh.active_connection_id) ||
             data.ssh.connections[0];
-          const promptUser = sshIsRoot
-            ? 'root'
-            : activeConn?.mode === 'ssh'
+          const promptUser =
+            activeConn?.mode === 'ssh'
               ? activeConn.user
               : activeConn?.user && activeConn.user !== 'sudo'
                 ? activeConn.user
                 : 'petr';
           const promptHost =
             activeConn?.mode === 'ssh' ? activeConn.host : mon.host_name;
-          const promptLabel = `${promptUser}@${promptHost}:${sshCwd}${sshIsRoot ? '#' : '$'}`;
+          const promptLabel = `${promptUser}@${promptHost}`;
 
           return (
             <main className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1 min-h-0 items-stretch">
@@ -1743,58 +1821,79 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </section>
 
-              {/* RIGHT PANEL (8 COLS): FULL-HEIGHT INTERACTIVE TERMINAL */}
+              {/* RIGHT PANEL (8 COLS): FULL-HEIGHT LIVE XTERM.JS PTY TERMINAL */}
               <section className="lg:col-span-8 lg:h-full apple-card p-5 flex flex-col gap-3.5 min-h-[420px]">
                 <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-white/[0.07]">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <span
                       className={`w-2 h-2 rounded-full shrink-0 ${
-                        sshIsRoot
-                          ? 'bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.85)]'
-                          : 'bg-emerald-400'
+                        ptyStatusText === 'connected'
+                          ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.75)]'
+                          : ptyStatusText === 'connecting'
+                            ? 'bg-amber-400 animate-pulse'
+                            : 'bg-rose-400'
                       }`}
                     />
                     <span className="text-sm font-semibold text-white truncate">
                       {activeConn?.name || 'Shell'}
                     </span>
-                    {sshIsRoot && (
-                      <span className="px-2 py-0.5 rounded-full bg-rose-500/20 border border-rose-400/40 text-rose-300 text-[10px] font-semibold uppercase tracking-wider shrink-0">
-                        ROOT
-                      </span>
-                    )}
+                    <span className="text-[11px] font-mono text-zinc-400 truncate">
+                      ({promptLabel})
+                    </span>
                     <span
-                      className={`text-[11px] font-mono truncate ${
-                        sshIsRoot ? 'text-rose-300' : 'text-zinc-400'
+                      className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wider shrink-0 ${
+                        ptyConnected
+                          ? 'bg-emerald-500/15 border-emerald-400/35 text-emerald-300'
+                          : ptyStatusText === 'connecting'
+                            ? 'bg-amber-500/15 border-amber-400/35 text-amber-300'
+                            : 'bg-rose-500/15 border-rose-400/35 text-rose-300'
                       }`}
                     >
-                      ({promptLabel})
+                      {ptyConnected
+                        ? 'LIVE PTY'
+                        : ptyStatusText === 'connecting'
+                          ? 'Připojování...'
+                          : 'Odpojeno'}
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <button
                       type="button"
-                      disabled={sshRunning}
-                      onClick={() => void runSshCommand(sshIsRoot ? 'exit' : 'sudo su')}
-                      className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors disabled:opacity-40 ${
-                        sshIsRoot
-                          ? 'bg-rose-500/20 hover:bg-rose-500/30 border-rose-400/40 text-rose-200'
-                          : 'bg-cyan-500/15 hover:bg-cyan-500/25 border-cyan-400/35 text-cyan-200'
-                      }`}
-                      title={
-                        sshIsRoot
-                          ? 'Ukončit root režim (exit)'
-                          : 'Přepnout na root shell (sudo su)'
-                      }
+                      disabled={!ptyConnected}
+                      onClick={() => runSshCommand('sudo su')}
+                      className="px-3 py-1.5 rounded-full bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/35 text-xs font-medium text-cyan-200 transition-colors disabled:opacity-40"
+                      title="Přepnout na root shell (sudo su)"
                     >
-                      {sshIsRoot ? 'exit root' : 'sudo su'}
+                      sudo su
                     </button>
                     <button
                       type="button"
-                      onClick={() => setSshHistory([])}
+                      disabled={!ptyConnected}
+                      onClick={() => sendPtyInput('\x03')}
+                      className="px-3 py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/35 text-xs font-mono font-medium text-rose-200 transition-colors disabled:opacity-40"
+                      title="Poslat SIGINT (Ctrl+C)"
+                    >
+                      Ctrl+C
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        xtermRef.current?.clear();
+                        sendPtyInput('clear\r');
+                      }}
                       className="px-3 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-zinc-200 transition-colors"
                     >
                       Vyčistit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPtyReconnectSeq((s) => s + 1)}
+                      className="px-3 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-zinc-200 flex items-center gap-1.5 transition-colors"
+                      title="Restartovat PTY relaci"
+                    >
+                      <RotateCw className="w-3.5 h-3.5" />
+                      Restart shellu
                     </button>
                     <button
                       type="button"
@@ -1810,91 +1909,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </div>
 
-                <div className="apple-well flex-1 min-h-0 p-4 font-mono text-xs space-y-3 overflow-y-auto">
-                  {sshHistory.length === 0 && (
-                    <div className="text-zinc-500 text-xs">
-                      Zadej příkaz dolů (podporuje i <span className="text-zinc-300">sudo su</span>,{' '}
-                      <span className="text-zinc-300">cd</span>, <span className="text-zinc-300">exit</span>) nebo klikni na zkratku vlevo.
-                    </div>
-                  )}
-                  {sshHistory.map((item) => {
-                    const lineHost =
-                      item.target === 'local'
-                        ? `${item.is_root ? 'root' : 'petr'}@${mon.host_name}`
-                        : item.target === 'root@local'
-                          ? `root@${mon.host_name}`
-                          : item.target || `${promptUser}@${promptHost}`;
-                    const linePrompt = `${lineHost}:${item.cwd || '~'}${item.is_root ? '#' : '$'}`;
-                    return (
-                      <div key={item.id} className="space-y-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div
-                            className={`truncate ${
-                              item.is_root ? 'text-rose-300' : 'text-cyan-300'
-                            }`}
-                          >
-                            {linePrompt} <span className="text-white">{item.cmd}</span>
-                          </div>
-                          {item.duration_ms !== undefined && (
-                            <span className="text-[10px] text-zinc-500 shrink-0">
-                              {item.ok ? 'OK' : `exit ${item.exit_code ?? 1}`} · {item.duration_ms}ms
-                            </span>
-                          )}
-                        </div>
-                        <pre
-                          className={`whitespace-pre-wrap break-words text-[11px] pl-3 border-l ${
-                            item.ok
-                              ? 'text-zinc-300 border-white/15'
-                              : 'text-rose-300 border-rose-400/50'
-                          }`}
-                        >
-                          {item.output}
-                        </pre>
-                      </div>
-                    );
-                  })}
-                  <div ref={sshEndRef} />
-                </div>
-
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void runSshCommand(sshInput);
-                  }}
-                  className="shrink-0 flex items-center gap-2"
+                <div
+                  className="apple-well flex-1 min-h-[340px] p-3 overflow-hidden relative bg-[#0a0a0d] cursor-text"
+                  onClick={() => xtermRef.current?.focus()}
                 >
-                  <div
-                    className={`apple-well flex-1 flex items-center gap-2 px-3.5 py-2.5 ${
-                      sshIsRoot
-                        ? 'border-rose-500/35 focus-within:border-rose-400/70'
-                        : 'focus-within:border-cyan-400/50'
-                    }`}
-                  >
-                    <span
-                      className={`font-mono text-xs shrink-0 ${
-                        sshIsRoot ? 'text-rose-300 font-semibold' : 'text-cyan-300'
-                      }`}
-                    >
-                      {promptLabel}
-                    </span>
-                    <input
-                      type="text"
-                      value={sshInput}
-                      onChange={(e) => setSshInput(e.target.value)}
-                      onKeyDown={handleSshKeyDown}
-                      disabled={sshRunning}
-                      placeholder="Napiš příkaz (šipky ↑/↓ pro historii)..."
-                      className="flex-1 min-w-0 bg-transparent text-xs font-mono text-white placeholder:text-zinc-500 outline-none"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={sshRunning || !sshInput.trim()}
-                    className="px-5 py-2.5 rounded-xl bg-white text-zinc-950 font-semibold text-xs hover:bg-zinc-200 disabled:opacity-40 transition-colors shrink-0"
-                  >
-                    {sshRunning ? 'Běží...' : 'Spustit'}
-                  </button>
-                </form>
+                  <div ref={ptyContainerRef} className="w-full h-full" />
+                </div>
               </section>
             </main>
           );
