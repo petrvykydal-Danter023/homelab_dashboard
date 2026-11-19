@@ -212,6 +212,41 @@ function HighlightMatchText({
   return <>{parts}</>;
 }
 
+const TAB_PROFILE_STORAGE_KEY = 'vykylab_active_profile_id';
+
+// Per-tab profile session isolation: attach X-Vykylab-Profile to all /api requests
+if (typeof window !== 'undefined') {
+  const globalWindow = window as Window & { __vykylabFetchPatched?: boolean };
+  if (!globalWindow.__vykylabFetchPatched) {
+    globalWindow.__vykylabFetchPatched = true;
+    const origFetch = window.fetch.bind(window);
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr =
+        typeof input === 'string'
+          ? input
+          : input instanceof URL
+            ? input.pathname + input.search
+            : input.url;
+      const isApiCall =
+        urlStr.startsWith('/api/') ||
+        urlStr.startsWith(window.location.origin + '/api/');
+      if (isApiCall) {
+        const tabProfileId = sessionStorage.getItem(TAB_PROFILE_STORAGE_KEY);
+        if (tabProfileId) {
+          const headers = new Headers(
+            init?.headers ?? (input instanceof Request ? input.headers : undefined)
+          );
+          if (!headers.has('X-Vykylab-Profile')) {
+            headers.set('X-Vykylab-Profile', tabProfileId);
+          }
+          return origFetch(input, { ...init, headers });
+        }
+      }
+      return origFetch(input, init);
+    };
+  }
+}
+
 export default function App() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -220,8 +255,10 @@ export default function App() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // Always open Profile Hub ("Rozcestník") first on app launch
-  const [showProfileHub, setShowProfileHub] = useState<boolean>(true);
+  // Open Profile Hub ("Rozcestník") on a fresh tab; keep current profile on F5 refresh
+  const [showProfileHub, setShowProfileHub] = useState<boolean>(
+    () => !sessionStorage.getItem(TAB_PROFILE_STORAGE_KEY)
+  );
 
   // PIN unlock prompt for protected profiles (e.g. sudo)
   const [pinTargetProfile, setPinTargetProfile] = useState<UserProfile | null>(null);
@@ -457,6 +494,7 @@ export default function App() {
       if (!res.ok || !json.ok) {
         return false;
       }
+      sessionStorage.setItem(TAB_PROFILE_STORAGE_KEY, id);
       if (json.dashboard) setData(json.dashboard);
       setSearchQuery('');
       setServiceSearch(null);

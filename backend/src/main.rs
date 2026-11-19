@@ -1,6 +1,6 @@
 use axum::{
     extract::{Multipart, Path, Query, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{delete, get, post, put},
     Json, Router,
@@ -1258,7 +1258,32 @@ fn resolve_docker_target_name(service_id: &str, store_services: &[HomelabService
         .map(|s| s.container_name.clone().unwrap_or_else(|| s.name.clone()))
 }
 
-async fn build_dashboard(state: &AppState) -> DashboardResponse {
+fn extract_requested_profile(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-vykylab-profile")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+}
+
+fn resolve_profile_for_request<'a>(
+    store: &'a PersistedStore,
+    requested_id: Option<&str>,
+) -> &'a UserProfile {
+    if let Some(req_id) = requested_id {
+        if let Some(found) = store.profiles.iter().find(|p| p.id == req_id) {
+            return found;
+        }
+    }
+    store
+        .profiles
+        .iter()
+        .find(|p| p.id == store.active_profile_id)
+        .unwrap_or_else(|| &store.profiles[0])
+}
+
+async fn build_dashboard(state: &AppState, requested_profile_id: Option<&str>) -> DashboardResponse {
     let mut sys = state.sys.write().await;
     sys.refresh_cpu_usage();
     sys.refresh_memory();
@@ -1399,12 +1424,7 @@ async fn build_dashboard(state: &AppState) -> DashboardResponse {
         .unwrap_or((128.0, 512.0, "APFS".to_string(), "SSD".to_string()));
 
     let store = state.store.read().await;
-    let active_profile = store
-        .profiles
-        .iter()
-        .find(|p| p.id == store.active_profile_id)
-        .cloned()
-        .unwrap_or_else(|| store.profiles[0].clone());
+    let active_profile = resolve_profile_for_request(&store, requested_profile_id).clone();
 
     let store_services_snapshot = store.services.clone();
     let connected_to = format!("{} Main-server", active_profile.workspace_label);
@@ -1660,6 +1680,7 @@ fn score_token_in_field(token: &str, field: &str) -> u32 {
 
 async fn search_services(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<ServiceSearchQuery>,
 ) -> Json<ServiceSearchResponse> {
     let raw_query = params.q.unwrap_or_default();
@@ -1671,12 +1692,11 @@ async fn search_services(
         .map(ToString::to_string)
         .collect();
 
+    let req_profile = extract_requested_profile(&headers);
     let store = state.store.read().await;
-    let visible_filter = store
-        .profiles
-        .iter()
-        .find(|p| p.id == store.active_profile_id)
-        .and_then(|p| p.visible_services.clone());
+    let visible_filter = resolve_profile_for_request(&store, req_profile.as_deref())
+        .visible_services
+        .clone();
     let store_services_snapshot = store.services.clone();
     drop(store);
 
@@ -1794,16 +1814,19 @@ async fn search_services(
     })
 }
 
-async fn get_dashboard(State(state): State<AppState>) -> impl IntoResponse {
+async fn get_dashboard(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     state.sync_yaml_if_changed().await;
-    Json(build_dashboard(&state).await)
+    let req_profile = extract_requested_profile(&headers);
+    Json(build_dashboard(&state, req_profile.as_deref()).await)
 }
 
 async fn update_profile(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(payload): Json<UpdateProfilePayload>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers).unwrap_or_else(|| id.clone());
     let mut store = state.store.write().await;
     let Some(prof) = store.profiles.iter_mut().find(|p| p.id == id) else {
         return (
@@ -1848,13 +1871,18 @@ async fn update_profile(
     state.persist(&store).await;
     drop(store);
 
-    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, Some(req_profile.as_str())).await })),
+    )
 }
 
 async fn create_admin_service(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<AdminServicePayload>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let name = payload.name.trim();
     let url = payload.url.trim();
     if name.is_empty() || url.is_empty() {
@@ -1930,15 +1958,17 @@ async fn create_admin_service(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "ok": true, "service_id": id, "dashboard": build_dashboard(&state).await })),
+        Json(serde_json::json!({ "ok": true, "service_id": id, "dashboard": build_dashboard(&state, req_profile.as_deref()).await })),
     )
 }
 
 async fn update_admin_service(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(payload): Json<AdminServicePayload>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let mut store = state.store.write().await;
     let Some(svc) = store.services.iter_mut().find(|s| s.id == id) else {
         return (
@@ -1984,14 +2014,16 @@ async fn update_admin_service(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, req_profile.as_deref()).await })),
     )
 }
 
 async fn delete_admin_service(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let mut store = state.store.write().await;
     let removed_image = store
         .services
@@ -2025,15 +2057,17 @@ async fn delete_admin_service(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, req_profile.as_deref()).await })),
     )
 }
 
 async fn upload_service_image(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let mut saved_url: Option<String> = None;
 
     while let Ok(Some(field)) = multipart.next_field().await {
@@ -2080,7 +2114,7 @@ async fn upload_service_image(
         Json(serde_json::json!({
             "ok": true,
             "image_url": image_url,
-            "dashboard": build_dashboard(&state).await
+            "dashboard": build_dashboard(&state, req_profile.as_deref()).await
         })),
     )
 }
@@ -2123,7 +2157,7 @@ async fn activate_profile(
     Path(id): Path<String>,
     payload: Option<Json<ActivateProfilePayload>>,
 ) -> impl IntoResponse {
-    let mut store = state.store.write().await;
+    let store = state.store.read().await;
     let Some(target) = store.profiles.iter().find(|p| p.id == id).cloned() else {
         return (
             StatusCode::NOT_FOUND,
@@ -2141,18 +2175,21 @@ async fn activate_profile(
         }
     }
 
-    store.active_profile_id = id;
-    state.persist(&store).await;
     drop(store);
 
-    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, Some(id.as_str())).await })),
+    )
 }
 
 async fn add_shortcut(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(profile_id): Path<String>,
     Json(payload): Json<AddShortcutPayload>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers).unwrap_or_else(|| profile_id.clone());
     let mut store = state.store.write().await;
     let Some(prof) = store.profiles.iter_mut().find(|p| p.id == profile_id) else {
         return (
@@ -2173,13 +2210,18 @@ async fn add_shortcut(
     state.persist(&store).await;
     drop(store);
 
-    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, Some(req_profile.as_str())).await })),
+    )
 }
 
 async fn delete_shortcut(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((profile_id, shortcut_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers).unwrap_or_else(|| profile_id.clone());
     let mut store = state.store.write().await;
     if let Some(prof) = store.profiles.iter_mut().find(|p| p.id == profile_id) {
         prof.shortcuts.retain(|s| s.id != shortcut_id);
@@ -2187,13 +2229,15 @@ async fn delete_shortcut(
     }
     drop(store);
 
-    Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await }))
+    Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, Some(req_profile.as_str())).await }))
 }
 
 async fn toggle_favorite(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((profile_id, service_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers).unwrap_or_else(|| profile_id.clone());
     let mut store = state.store.write().await;
     if let Some(prof) = store.profiles.iter_mut().find(|p| p.id == profile_id) {
         if prof.favorite_services.contains(&service_id) {
@@ -2205,20 +2249,19 @@ async fn toggle_favorite(
     }
     drop(store);
 
-    Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await }))
+    Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, Some(req_profile.as_str())).await }))
 }
 
 async fn run_script(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(shortcut_id): Path<String>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let store = state.store.read().await;
-    let active = store
-        .profiles
-        .iter()
-        .find(|p| p.id == store.active_profile_id);
+    let active = resolve_profile_for_request(&store, req_profile.as_deref());
 
-    let shortcut = active.and_then(|p| p.shortcuts.iter().find(|s| s.id == shortcut_id)).cloned();
+    let shortcut = active.shortcuts.iter().find(|s| s.id == shortcut_id).cloned();
     drop(store);
 
     let Some(sc) = shortcut else {
@@ -2255,16 +2298,18 @@ async fn run_script(
         Json(serde_json::json!({
             "ok": ok,
             "output": text,
-            "dashboard": build_dashboard(&state).await
+            "dashboard": build_dashboard(&state, req_profile.as_deref()).await
         })),
     )
 }
 
 async fn service_action(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(service_id): Path<String>,
     Json(payload): Json<ServiceActionPayload>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let action = payload.action.as_str();
     if !matches!(action, "start" | "restart" | "stop") {
         return (
@@ -2301,7 +2346,7 @@ async fn service_action(
                 *state.docker_cache.write().await = None;
                 return (
                     StatusCode::OK,
-                    Json(serde_json::json!({ "ok": out.status.success(), "dashboard": build_dashboard(&state).await })),
+                    Json(serde_json::json!({ "ok": out.status.success(), "dashboard": build_dashboard(&state, req_profile.as_deref()).await })),
                 );
             }
         }
@@ -2331,7 +2376,10 @@ async fn service_action(
     state.persist(&store).await;
     drop(store);
 
-    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, req_profile.as_deref()).await })),
+    )
 }
 
 async fn get_docker_logs(
@@ -2404,7 +2452,8 @@ async fn get_docker_logs(
     )
 }
 
-async fn run_system_check(State(state): State<AppState>) -> impl IntoResponse {
+async fn run_system_check(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let now_time = Local::now().format("%H:%M").to_string();
     let mut store = state.store.write().await;
     store.last_checked = now_time;
@@ -2413,14 +2462,16 @@ async fn run_system_check(State(state): State<AppState>) -> impl IntoResponse {
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, req_profile.as_deref()).await })),
     )
 }
 
 async fn upload_file(
     State(state): State<AppState>,
+    headers: HeaderMap,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let mut saved: Vec<UploadedFileInfo> = Vec::new();
 
     while let Ok(Some(field)) = multipart.next_field().await {
@@ -2464,7 +2515,7 @@ async fn upload_file(
         Json(serde_json::json!({
             "ok": true,
             "uploaded": saved,
-            "dashboard": build_dashboard(&state).await
+            "dashboard": build_dashboard(&state, req_profile.as_deref()).await
         })),
     )
 }
@@ -2493,8 +2544,10 @@ pub struct AddSshShortcutPayload {
 
 async fn add_ssh_connection(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<AddSshConnectionPayload>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     if payload.name.trim().is_empty() || payload.host.trim().is_empty() || payload.user.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -2519,13 +2572,18 @@ async fn add_ssh_connection(
     state.persist(&store).await;
     drop(store);
 
-    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, req_profile.as_deref()).await })),
+    )
 }
 
 async fn delete_ssh_connection(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let mut store = state.store.write().await;
     if id == "ssh-local" {
         return (
@@ -2540,13 +2598,18 @@ async fn delete_ssh_connection(
     state.persist(&store).await;
     drop(store);
 
-    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, req_profile.as_deref()).await })),
+    )
 }
 
 async fn activate_ssh_connection(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let mut store = state.store.write().await;
     if !store.ssh.connections.iter().any(|c| c.id == id) {
         return (
@@ -2558,13 +2621,18 @@ async fn activate_ssh_connection(
     state.persist(&store).await;
     drop(store);
 
-    (StatusCode::OK, Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, req_profile.as_deref()).await })),
+    )
 }
 
 async fn add_ssh_shortcut(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<AddSshShortcutPayload>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     if payload.label.trim().is_empty() || payload.command.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -2582,14 +2650,16 @@ async fn add_ssh_shortcut(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, req_profile.as_deref()).await })),
     )
 }
 
 async fn delete_ssh_shortcut(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let mut store = state.store.write().await;
     store.ssh.shortcuts.retain(|s| s.id != id);
     state.persist(&store).await;
@@ -2597,20 +2667,18 @@ async fn delete_ssh_shortcut(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, req_profile.as_deref()).await })),
     )
 }
 
 async fn admin_exec(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<AdminExecPayload>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let store = state.store.read().await;
-    let is_admin = store
-        .profiles
-        .iter()
-        .find(|p| p.id == store.active_profile_id)
-        .is_some_and(|p| p.is_admin);
+    let is_admin = resolve_profile_for_request(&store, req_profile.as_deref()).is_admin;
     let conn_id = payload
         .connection_id
         .as_deref()
@@ -2699,8 +2767,10 @@ async fn admin_exec(
 
 async fn create_noticeboard_item(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<CreateNoticeboardPayload>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let title = payload.title.trim();
     let message = payload.message.trim();
     if title.is_empty() || message.is_empty() {
@@ -2719,12 +2789,9 @@ async fn create_noticeboard_item(
         .to_string();
 
     let mut store = state.store.write().await;
-    let author = store
-        .profiles
-        .iter()
-        .find(|p| p.id == store.active_profile_id)
-        .map(|p| p.name.clone())
-        .unwrap_or_else(|| "Sudo".to_string());
+    let author = resolve_profile_for_request(&store, req_profile.as_deref())
+        .name
+        .clone();
 
     store.noticeboard.insert(
         0,
@@ -2743,15 +2810,17 @@ async fn create_noticeboard_item(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, req_profile.as_deref()).await })),
     )
 }
 
 async fn update_noticeboard_item(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(payload): Json<UpdateNoticeboardPayload>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let mut store = state.store.write().await;
     let Some(item) = store.noticeboard.iter_mut().find(|n| n.id == id) else {
         return (
@@ -2778,14 +2847,16 @@ async fn update_noticeboard_item(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, req_profile.as_deref()).await })),
     )
 }
 
 async fn delete_noticeboard_item(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let mut store = state.store.write().await;
     let before = store.noticeboard.len();
     store.noticeboard.retain(|n| n.id != id);
@@ -2800,7 +2871,7 @@ async fn delete_noticeboard_item(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state).await })),
+        Json(serde_json::json!({ "ok": true, "dashboard": build_dashboard(&state, req_profile.as_deref()).await })),
     )
 }
 
@@ -2823,13 +2894,10 @@ async fn run_update_step(program: &str, args: &[&str], dir: &StdPath) -> (bool, 
     }
 }
 
-async fn admin_github_update(State(state): State<AppState>) -> impl IntoResponse {
+async fn admin_github_update(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    let req_profile = extract_requested_profile(&headers);
     let store = state.store.read().await;
-    let is_admin = store
-        .profiles
-        .iter()
-        .find(|p| p.id == store.active_profile_id)
-        .is_some_and(|p| p.is_admin);
+    let is_admin = resolve_profile_for_request(&store, req_profile.as_deref()).is_admin;
     if !is_admin {
         return (
             StatusCode::FORBIDDEN,
