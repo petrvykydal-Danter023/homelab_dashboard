@@ -16,7 +16,6 @@
       ],
       "visible_services": [
         "svc-adguard",
-        "svc-immich",
         "svc-vaultwarden",
         "svc-jellyfin",
         "svc-homeassistant",
@@ -54,13 +53,11 @@
       "pin_code": "1234",
       "favorite_services": [
         "svc-portainer",
-        "svc-adguard",
-        "svc-immich"
+        "svc-adguard"
       ],
       "visible_services": [
         "svc-portainer",
         "svc-adguard",
-        "svc-immich",
         "svc-traefik",
         "svc-vaultwarden",
         "svc-jellyfin",
@@ -102,7 +99,6 @@
         "svc-adguard"
       ],
       "visible_services": [
-        "svc-immich",
         "svc-vaultwarden",
         "svc-jellyfin",
         "svc-homeassistant",
@@ -157,8 +153,7 @@
       "pin_code": "1234",
       "favorite_services": [
         "svc-portainer",
-        "svc-adguard",
-        "svc-immich"
+        "svc-adguard"
       ],
       "visible_services": [
         "svc-jellyfin",
@@ -205,18 +200,6 @@
       "uptime": "Up (healthy) · právě teď",
       "url": "https://dns.vykylab.local",
       "icon": "shield",
-      "image_url": null,
-      "is_docker": true,
-      "container_name": null
-    },
-    {
-      "id": "svc-immich",
-      "name": "Immich",
-      "subtitle": "Rodinné fotky & zálohy",
-      "status": "running",
-      "uptime": "Up (healthy) · 12d",
-      "url": "https://photos.vykylab.local",
-      "icon": "image",
       "image_url": null,
       "is_docker": true,
       "container_name": null
@@ -352,15 +335,6 @@
       "tag": "Info",
       "pinned": true,
       "timestamp": "19.11. · 13:51"
-    },
-    {
-      "id": "note-photos",
-      "title": "Záloha fotek na Immichu",
-      "message": "Zálohování fotek z mobilů jede automaticky v noci po připojení na domácí Wi-Fi.",
-      "author": "Sudo",
-      "tag": "Oznámení",
-      "pinned": false,
-      "timestamp": "Dnes · 08:30"
     }
   ],
   "last_checked": "14:51",

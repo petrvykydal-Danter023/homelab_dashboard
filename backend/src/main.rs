@@ -237,26 +237,15 @@ pub struct NoticeboardItem {
 }
 
 fn default_noticeboard() -> Vec<NoticeboardItem> {
-    vec![
-        NoticeboardItem {
-            id: "note-welcome".to_string(),
-            title: "Vykylab běží bez problémů".to_string(),
-            message: "Všechny domácí služby jsou online. Kdyby něco nešlo, mrkni sem na případnou plánovanou údržbu.".to_string(),
-            author: "Sudo".to_string(),
-            tag: "Info".to_string(),
-            pinned: true,
-            timestamp: Local::now().format("%-d.%-m. · %H:%M").to_string(),
-        },
-        NoticeboardItem {
-            id: "note-photos".to_string(),
-            title: "Záloha fotek na Immichu".to_string(),
-            message: "Zálohování fotek z mobilů jede automaticky v noci po připojení na domácí Wi-Fi.".to_string(),
-            author: "Sudo".to_string(),
-            tag: "Oznámení".to_string(),
-            pinned: false,
-            timestamp: "Dnes · 08:30".to_string(),
-        },
-    ]
+    vec![NoticeboardItem {
+        id: "note-welcome".to_string(),
+        title: "Vykylab běží bez problémů".to_string(),
+        message: "Všechny domácí služby jsou online. Kdyby něco nešlo, mrkni sem na případnou plánovanou údržbu.".to_string(),
+        author: "Sudo".to_string(),
+        tag: "Info".to_string(),
+        pinned: true,
+        timestamp: Local::now().format("%-d.%-m. · %H:%M").to_string(),
+    }]
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -739,7 +728,6 @@ fn default_sudo_profile() -> UserProfile {
         favorite_services: vec![
             "svc-portainer".to_string(),
             "svc-adguard".to_string(),
-            "svc-immich".to_string(),
         ],
         visible_services: None,
         shortcuts: vec![
@@ -784,7 +772,6 @@ fn build_family_profile(
         favorite_services: vec![
             "svc-portainer".to_string(),
             "svc-adguard".to_string(),
-            "svc-immich".to_string(),
         ],
         visible_services: None,
         shortcuts: vec![
@@ -845,18 +832,6 @@ fn default_store() -> PersistedStore {
             uptime: "Up (healthy) · 18d".to_string(),
             url: "https://dns.vykylab.dev".to_string(),
             icon: "shield".to_string(),
-            image_url: None,
-            is_docker: true,
-            container_name: None,
-        },
-        HomelabService {
-            id: "svc-immich".to_string(),
-            name: "Immich".to_string(),
-            subtitle: "Rodinné fotky & zálohy".to_string(),
-            status: "running".to_string(),
-            uptime: "Up (healthy) · 12d".to_string(),
-            url: "https://photos.vykylab.dev".to_string(),
-            icon: "image".to_string(),
             image_url: None,
             is_docker: true,
             container_name: None,
