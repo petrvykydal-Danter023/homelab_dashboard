@@ -39,13 +39,13 @@ import {
 } from 'lucide-react';
 import type {
   DashboardResponse,
+  HomelabService,
   ServiceSearchHit,
   ServiceSearchResponse,
   UserProfile,
   UserShortcut,
 } from './types';
 import { AdminDashboard } from './AdminDashboard';
-import { WakePcButton } from './WakePcButton';
 import {
   AVATAR_COLOR_OPTIONS,
   AVATAR_CONFIG,
@@ -438,6 +438,32 @@ export default function App() {
       );
       const json = await res.json();
       if (json.dashboard) setData(json.dashboard);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleTriggerWolService = async (svc: HomelabService) => {
+    const rest = svc.url.replace(/^wol:\/\//i, '').trim();
+    const slashIdx = rest.indexOf('/');
+    const mac = (slashIdx >= 0 ? rest.slice(0, slashIdx) : rest).trim();
+    const ip = (slashIdx >= 0 ? rest.slice(slashIdx + 1) : '').trim() || undefined;
+    setBusyId(svc.id);
+    try {
+      const res = await fetch('/api/system/wol', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac, ip, name: svc.name }),
+      });
+      const json = await res.json();
+      showToast(
+        Boolean(json.ok),
+        json.message || `Magic Packet odeslán na ${svc.name}.`
+      );
+      window.setTimeout(() => void fetchDashboard(), 3000);
+      window.setTimeout(() => void fetchDashboard(), 8000);
+    } catch {
+      showToast(false, `Nepodařilo se probudit ${svc.name}.`);
     } finally {
       setBusyId(null);
     }
@@ -1166,8 +1192,6 @@ export default function App() {
                 <span>{data.monitoring.host_name}</span>
               </div>
 
-              <WakePcButton onToast={showToast} />
-
               <button
                 type="button"
                 onClick={() => setProfileModalOpen(true)}
@@ -1499,9 +1523,12 @@ export default function App() {
           >
             {orderedServices.map((svc) => {
               const isFav = profile.favorite_services.includes(svc.id);
+              const isWolService = svc.url.toLowerCase().startsWith('wol://');
               const isContainerLinked = svc.is_docker !== false || Boolean(svc.container_name);
               const isRunning = svc.status === 'running';
-              const cleanUrl = svc.url.replace(/^https?:\/\//, '');
+              const cleanUrl = isWolService
+                ? svc.url.replace(/^wol:\/\//i, '').replace('/', ' · ')
+                : svc.url.replace(/^https?:\/\//, '');
               const hit = hitMap[svc.id];
               const matchScore = hit?.score ?? 0;
               const isMatch = isSearching && matchScore > 0;
@@ -1516,9 +1543,17 @@ export default function App() {
                   ref={(el) => {
                     serviceCardRefs.current[svc.id] = el;
                   }}
-                  href={svc.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href={isWolService ? '#wol' : svc.url}
+                  target={isWolService ? undefined : '_blank'}
+                  rel={isWolService ? undefined : 'noopener noreferrer'}
+                  onClick={
+                    isWolService
+                      ? (e) => {
+                          e.preventDefault();
+                          void handleTriggerWolService(svc);
+                        }
+                      : undefined
+                  }
                   style={
                     isMatch
                       ? {
@@ -1559,7 +1594,11 @@ export default function App() {
                               active={isMatch}
                             />
                           </h3>
-                          <ExternalLink className="w-3 h-3 text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                          {isWolService ? (
+                            <Zap className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                          ) : (
+                            <ExternalLink className="w-3 h-3 text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                          )}
                         </div>
                         {isContainerLinked ? (
                           <p className="text-[11px] font-medium flex items-center gap-1.5 mt-0.5">
@@ -1609,16 +1648,22 @@ export default function App() {
                       >
                         <Heart className={`w-3.5 h-3.5 ${isFav ? 'fill-current' : ''}`} />
                       </button>
-                      {isContainerLinked && (
-                        <span className="text-[10px] font-mono text-zinc-500 group-hover:text-zinc-300 transition-colors truncate">
-                          <HighlightMatchText
-                            text={cleanUrl}
-                            query={searchQuery}
-                            accentHex={profileAccent.hex}
-                            accentRgb={profileAccent.rgb}
-                            active={isMatch}
-                          />
+                      {isWolService ? (
+                        <span className="text-[11px] font-medium text-amber-300/90 group-hover:text-amber-200 transition-colors truncate">
+                          {busyId === svc.id ? '⚡ Probouzím...' : '⚡ Kliknutím probudit'}
                         </span>
+                      ) : (
+                        isContainerLinked && (
+                          <span className="text-[10px] font-mono text-zinc-500 group-hover:text-zinc-300 transition-colors truncate">
+                            <HighlightMatchText
+                              text={cleanUrl}
+                              query={searchQuery}
+                              accentHex={profileAccent.hex}
+                              accentRgb={profileAccent.rgb}
+                              active={isMatch}
+                            />
+                          </span>
+                        )
                       )}
                     </div>
                   </div>

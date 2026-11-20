@@ -59,7 +59,6 @@ import {
   getProfileAccentColor,
   getProfileAvatarTheme,
 } from './Avatar';
-import { WakePcButton } from './WakePcButton';
 
 type AdminTab = 'dashboard' | 'docker' | 'ssh' | 'processes' | 'profiles' | 'noticeboard';
 type ProcessSortKey = 'cpu' | 'memory' | 'name';
@@ -163,12 +162,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [editingNote, setEditingNote] = useState<NoticeboardItem | null>(null);
   // Real Docker containers only (excludes profile links)
   const dockerServices = data.services.filter((s) => s.is_docker !== false);
-  const [newSvcMode, setNewSvcMode] = useState<'link' | 'container'>('link');
+  const [newSvcMode, setNewSvcMode] = useState<'link' | 'container' | 'wol'>('link');
   const [newSvcContainerId, setNewSvcContainerId] = useState<string>(
     () => dockerServices[0]?.id ?? ''
   );
   const [newSvcName, setNewSvcName] = useState('');
   const [newSvcUrl, setNewSvcUrl] = useState('');
+  const [newSvcWolMac, setNewSvcWolMac] = useState('');
+  const [newSvcWolIp, setNewSvcWolIp] = useState('');
   const [newSvcSubtitle, setNewSvcSubtitle] = useState('');
   const [newSvcIcon, setNewSvcIcon] = useState('globe');
   const [newSvcImageFile, setNewSvcImageFile] = useState<File | null>(null);
@@ -421,25 +422,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleCreateService = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newSvcName.trim() || !newSvcUrl.trim()) return;
+    if (!newSvcName.trim()) return;
+    if (newSvcMode === 'wol' && !newSvcWolMac.trim()) return;
+    if (newSvcMode !== 'wol' && !newSvcUrl.trim()) return;
     setBusyId('create-svc');
     try {
       const pickedContainer =
         newSvcMode === 'container'
           ? dockerServices.find((c) => c.id === newSvcContainerId) ?? dockerServices[0]
           : undefined;
+      const effectiveUrl =
+        newSvcMode === 'wol'
+          ? `wol://${newSvcWolMac.trim()}${newSvcWolIp.trim() ? `/${newSvcWolIp.trim()}` : ''}`
+          : newSvcUrl.trim();
       const res = await fetch('/api/admin/services', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: newSvcName.trim(),
-          url: newSvcUrl.trim(),
+          url: effectiveUrl,
           subtitle:
             newSvcSubtitle.trim() ||
-            (pickedContainer ? pickedContainer.name : undefined),
+            (newSvcMode === 'wol'
+              ? `Wake-on-LAN · ${newSvcWolIp.trim() || newSvcWolMac.trim()}`
+              : pickedContainer
+                ? pickedContainer.name
+                : undefined),
           icon: newSvcIcon,
           is_docker: false,
-          container_name: pickedContainer ? pickedContainer.name : undefined,
+          container_name:
+            newSvcMode === 'wol'
+              ? 'wol'
+              : pickedContainer
+                ? pickedContainer.name
+                : undefined,
         }),
       });
       const json = await res.json();
@@ -470,8 +486,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       setNewSvcName('');
       setNewSvcUrl('');
+      setNewSvcWolMac('');
+      setNewSvcWolIp('');
       setNewSvcSubtitle('');
-      setNewSvcIcon(newSvcMode === 'container' ? 'container' : 'globe');
+      setNewSvcIcon(
+        newSvcMode === 'container'
+          ? 'container'
+          : newSvcMode === 'wol'
+            ? 'zap'
+            : 'globe'
+      );
       setNewSvcImageFile(null);
       await onRefresh();
       onShowToast(true, 'Služba přidána.');
@@ -934,24 +958,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </nav>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <WakePcButton onToast={onShowToast} />
-
-              <button
-                type="button"
-                onClick={() => void handleGithubUpdate()}
-                disabled={githubUpdating}
-                className="px-3.5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/[0.12] text-xs font-semibold text-white flex items-center gap-2 transition-all disabled:opacity-50 shrink-0"
-                title="Stáhnout nejnovější změny z GitHubu (git pull + build + restart)"
-              >
-                {githubUpdating ? (
-                  <RefreshCw className="w-3.5 h-3.5 text-cyan-300 animate-spin" />
-                ) : (
-                  <Download className="w-3.5 h-3.5 text-cyan-300" />
-                )}
-                <span>{githubUpdating ? 'Aktualizuji...' : 'Aktualizovat z GitHubu'}</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => void handleGithubUpdate()}
+              disabled={githubUpdating}
+              className="px-3.5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/[0.12] text-xs font-semibold text-white flex items-center gap-2 transition-all disabled:opacity-50 shrink-0"
+              title="Stáhnout nejnovější změny z GitHubu (git pull + build + restart)"
+            >
+              {githubUpdating ? (
+                <RefreshCw className="w-3.5 h-3.5 text-cyan-300 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5 text-cyan-300" />
+              )}
+              <span>{githubUpdating ? 'Aktualizuji...' : 'Aktualizovat z GitHubu'}</span>
+            </button>
           </div>
         </header>
 
@@ -2559,16 +2579,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   </span>
                                   <span
                                     className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full border shrink-0 ${
-                                      svc.is_docker !== false || svc.container_name
-                                        ? 'bg-cyan-500/10 text-cyan-300 border-cyan-400/25'
-                                        : 'bg-white/[0.06] text-zinc-400 border-white/[0.08]'
+                                      svc.url.startsWith('wol://') || svc.container_name === 'wol'
+                                        ? 'bg-amber-500/15 text-amber-300 border-amber-400/30'
+                                        : svc.is_docker !== false || svc.container_name
+                                          ? 'bg-cyan-500/10 text-cyan-300 border-cyan-400/25'
+                                          : 'bg-white/[0.06] text-zinc-400 border-white/[0.08]'
                                     }`}
                                   >
-                                    {svc.is_docker !== false
-                                      ? 'Docker'
-                                      : svc.container_name
-                                        ? svc.container_name
-                                        : 'Odkaz'}
+                                    {svc.url.startsWith('wol://') || svc.container_name === 'wol'
+                                      ? 'Wake-on-LAN'
+                                      : svc.is_docker !== false
+                                        ? 'Docker'
+                                        : svc.container_name
+                                          ? svc.container_name
+                                          : 'Odkaz'}
                                   </span>
                                 </div>
                                 <div className="text-[11px] text-zinc-400 truncate">
@@ -2694,40 +2718,102 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       >
                         Přiřadit kontejner
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewSvcMode('wol');
+                          setNewSvcIcon('zap');
+                        }}
+                        className={`px-3.5 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+                          newSvcMode === 'wol'
+                            ? 'bg-amber-300 text-zinc-950 font-semibold'
+                            : 'text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        ⚡ Wake-on-LAN PC
+                      </button>
                     </div>
                   </div>
 
                   <form onSubmit={handleCreateService} className="space-y-4">
-                    {/* Row 1: Name & URL */}
+                    {/* Row 1: Name & URL or MAC */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="text-[11px] font-medium text-zinc-400 block mb-1.5">
-                          Název
+                          {newSvcMode === 'wol' ? 'Název počítače' : 'Název'}
                         </label>
                         <input
                           type="text"
                           value={newSvcName}
                           onChange={(e) => setNewSvcName(e.target.value)}
                           placeholder={
-                            newSvcMode === 'link' ? 'např. Proxmox VE' : 'např. Portainer Web'
+                            newSvcMode === 'wol'
+                              ? 'např. Peťův PC / Tátův PC'
+                              : newSvcMode === 'link'
+                                ? 'např. Proxmox VE'
+                                : 'např. Portainer Web'
                           }
                           className="apple-well w-full px-3.5 py-2.5 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-white/25"
                         />
                       </div>
 
-                      <div>
-                        <label className="text-[11px] font-medium text-zinc-400 block mb-1.5">
-                          URL adresa
-                        </label>
-                        <input
-                          type="text"
-                          value={newSvcUrl}
-                          onChange={(e) => setNewSvcUrl(e.target.value)}
-                          placeholder="https://proxmox.vykylab.local"
-                          className="apple-well w-full px-3.5 py-2.5 text-xs font-mono text-white placeholder:text-zinc-500 outline-none focus:border-white/25"
-                        />
-                      </div>
+                      {newSvcMode === 'wol' ? (
+                        <div>
+                          <label className="text-[11px] font-medium text-zinc-400 block mb-1.5">
+                            MAC adresa síťovky
+                          </label>
+                          <input
+                            type="text"
+                            value={newSvcWolMac}
+                            onChange={(e) => setNewSvcWolMac(e.target.value)}
+                            placeholder="např. d8:bb:c1:3c:f3:ca"
+                            className="apple-well w-full px-3.5 py-2.5 text-xs font-mono text-white placeholder:text-zinc-500 outline-none focus:border-white/25"
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="text-[11px] font-medium text-zinc-400 block mb-1.5">
+                            URL adresa
+                          </label>
+                          <input
+                            type="text"
+                            value={newSvcUrl}
+                            onChange={(e) => setNewSvcUrl(e.target.value)}
+                            placeholder="https://proxmox.vykylab.local"
+                            className="apple-well w-full px-3.5 py-2.5 text-xs font-mono text-white placeholder:text-zinc-500 outline-none focus:border-white/25"
+                          />
+                        </div>
+                      )}
                     </div>
+
+                    {newSvcMode === 'wol' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[11px] font-medium text-zinc-400 block mb-1.5">
+                            IP adresa PC v LAN (pro živý stav Online/Vypnuto)
+                          </label>
+                          <input
+                            type="text"
+                            value={newSvcWolIp}
+                            onChange={(e) => setNewSvcWolIp(e.target.value)}
+                            placeholder="např. 10.0.1.46"
+                            className="apple-well w-full px-3.5 py-2.5 text-xs font-mono text-white placeholder:text-zinc-500 outline-none focus:border-white/25"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-medium text-zinc-400 block mb-1.5">
+                            Popisek (volitelný)
+                          </label>
+                          <input
+                            type="text"
+                            value={newSvcSubtitle}
+                            onChange={(e) => setNewSvcSubtitle(e.target.value)}
+                            placeholder="např. Stolní PC · Wake-on-LAN"
+                            className="apple-well w-full px-3.5 py-2.5 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-white/25"
+                          />
+                        </div>
+                      </div>
+                    )}
 
                     {/* Row 2: Container/Subtitle & Image Upload */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2748,7 +2834,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             ))}
                           </select>
                         </div>
-                      ) : (
+                      ) : newSvcMode === 'link' ? (
                         <div>
                           <label className="text-[11px] font-medium text-zinc-400 block mb-1.5">
                             Popisek (volitelný)
@@ -2761,7 +2847,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             className="apple-well w-full px-3.5 py-2.5 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-white/25"
                           />
                         </div>
-                      )}
+                      ) : null}
 
                       <div>
                         <label className="text-[11px] font-medium text-zinc-400 block mb-1.5">
@@ -2834,7 +2920,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         type="submit"
                         disabled={
                           !newSvcName.trim() ||
-                          !newSvcUrl.trim() ||
+                          (newSvcMode === 'wol' ? !newSvcWolMac.trim() : !newSvcUrl.trim()) ||
                           busyId === 'create-svc'
                         }
                         className="py-2.5 px-5 rounded-xl bg-white hover:bg-zinc-200 text-zinc-950 text-xs font-semibold flex items-center justify-center gap-1.5 disabled:opacity-40 transition-colors shrink-0"

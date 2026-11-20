@@ -1437,8 +1437,42 @@ async fn build_dashboard(state: &AppState, requested_profile_id: Option<&str>) -
         resolve_weather_for_location(state, &active_location, &fallback_weather)
     );
 
-    let (docker_live, synced_services) =
+    let (docker_live, mut synced_services) =
         merge_store_and_docker_services(&store_services_snapshot, real_docker_opt);
+
+    let mut wol_checks = Vec::new();
+    for (idx, svc) in synced_services.iter_mut().enumerate() {
+        if let Some((mac, ip_opt)) = parse_wol_service_url(&svc.url) {
+            if svc.container_name.is_none() {
+                svc.container_name = Some("wol".to_string());
+            }
+            if let Some(ip) = ip_opt {
+                wol_checks.push((
+                    idx,
+                    ip.clone(),
+                    tokio::spawn(async move {
+                        check_host_online_with_timeout(&ip, Duration::from_millis(300)).await
+                    }),
+                ));
+            } else {
+                svc.status = "running".to_string();
+                svc.uptime = format!("Wake-on-LAN · {}", mac);
+            }
+        }
+    }
+    for (idx, ip, handle) in wol_checks {
+        let online = handle.await.unwrap_or(false);
+        synced_services[idx].status = if online {
+            "running".to_string()
+        } else {
+            "stopped".to_string()
+        };
+        synced_services[idx].uptime = if online {
+            format!("Online · {}", ip)
+        } else {
+            format!("Vypnuto · {}", ip)
+        };
+    }
 
     let any_stopped = synced_services
         .iter()
@@ -2464,11 +2498,34 @@ async fn run_system_check(State(state): State<AppState>, headers: HeaderMap) -> 
 pub struct WolPayload {
     pub mac: Option<String>,
     pub ip: Option<String>,
+    pub name: Option<String>,
 }
 
 const DEFAULT_PC_MAC: &str = "d8:bb:c1:3c:f3:ca";
 const DEFAULT_PC_IP: &str = "10.0.1.46";
 const DEFAULT_PC_HOST: &str = "petruvkomp";
+
+fn parse_wol_service_url(url: &str) -> Option<(String, Option<String>)> {
+    let trimmed = url.trim();
+    if trimmed.len() < 6 || !trimmed[..6].eq_ignore_ascii_case("wol://") {
+        return None;
+    }
+    let rest = trimmed[6..].trim();
+    if rest.is_empty() {
+        return None;
+    }
+    let mut parts = rest.splitn(2, '/');
+    let mac = parts.next()?.trim();
+    if mac.is_empty() {
+        return None;
+    }
+    let ip = parts
+        .next()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string);
+    Some((mac.to_string(), ip))
+}
 
 fn send_wol_magic_packet(mac_str: &str, target_ip: &str) -> Result<Vec<String>, String> {
     let cleaned: String = mac_str
@@ -2496,12 +2553,14 @@ fn send_wol_magic_packet(mac_str: &str, target_ip: &str) -> Result<Vec<String>, 
     sock.set_broadcast(true)
         .map_err(|e| format!("Nepodařilo se povolit broadcast: {}", e))?;
 
-    let targets = vec![
+    let mut targets = vec![
         "10.0.1.255:9".to_string(),
         "10.0.1.255:7".to_string(),
         "255.255.255.255:9".to_string(),
-        format!("{}:9", target_ip),
     ];
+    if !target_ip.trim().is_empty() {
+        targets.push(format!("{}:9", target_ip.trim()));
+    }
     let mut sent_to = Vec::new();
     for addr in &targets {
         if sock.send_to(&packet, addr).is_ok() {
@@ -2514,20 +2573,20 @@ fn send_wol_magic_packet(mac_str: &str, target_ip: &str) -> Result<Vec<String>, 
     Ok(sent_to)
 }
 
-async fn check_host_online(ip: &str) -> bool {
+async fn check_host_online_with_timeout(ip: &str, timeout_dur: Duration) -> bool {
     let fut = tokio::process::Command::new("ping")
         .args(["-c", "1", "-W", "1", ip])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
     matches!(
-        tokio::time::timeout(Duration::from_millis(1200), fut).await,
+        tokio::time::timeout(timeout_dur, fut).await,
         Ok(Ok(st)) if st.success()
     )
 }
 
 async fn wake_on_lan_status() -> impl IntoResponse {
-    let online = check_host_online(DEFAULT_PC_IP).await;
+    let online = check_host_online_with_timeout(DEFAULT_PC_IP, Duration::from_millis(1200)).await;
     (
         StatusCode::OK,
         Json(serde_json::json!({
@@ -2544,20 +2603,21 @@ async fn wake_on_lan_pc(body: axum::body::Bytes) -> impl IntoResponse {
     let payload: WolPayload = serde_json::from_slice(&body).unwrap_or_default();
     let mac = payload.mac.as_deref().unwrap_or(DEFAULT_PC_MAC);
     let ip = payload.ip.as_deref().unwrap_or(DEFAULT_PC_IP);
+    let label = payload.name.as_deref().unwrap_or(DEFAULT_PC_HOST);
 
     match send_wol_magic_packet(mac, ip) {
         Ok(targets) => {
-            let online = check_host_online(ip).await;
+            let online = check_host_online_with_timeout(ip, Duration::from_millis(400)).await;
             (
                 StatusCode::OK,
                 Json(serde_json::json!({
                     "ok": true,
-                    "host": DEFAULT_PC_HOST,
+                    "host": label,
                     "ip": ip,
                     "mac": mac,
                     "online": online,
                     "targets": targets,
-                    "message": format!("Magic Packet odeslán na {} ({}) — probouzím PC!", DEFAULT_PC_HOST, mac),
+                    "message": format!("Magic Packet odeslán na {} ({}) — probouzím PC!", label, mac),
                 })),
             )
         }
