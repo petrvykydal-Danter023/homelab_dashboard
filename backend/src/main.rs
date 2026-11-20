@@ -1094,8 +1094,18 @@ fn infer_docker_url(name: &str) -> String {
         "https://search.vykylab.dev".to_string()
     } else if lower.contains("n8n") {
         "https://n8n.vykylab.dev".to_string()
-    } else if lower == "paperless" {
-        "https://paperless.vykylab.dev".to_string()
+    } else if lower.contains("vaultwarden") {
+        "https://vault.vykylab.dev".to_string()
+    } else if lower.contains("photocraft") {
+        "https://photo.vykylab.dev".to_string()
+    } else if lower.contains("vectorcraft") {
+        "https://vector.vykylab.dev".to_string()
+    } else if lower.contains("quickimg") {
+        "https://img.vykylab.dev".to_string()
+    } else if lower.contains("convertx") {
+        "https://convert.vykylab.dev".to_string()
+    } else if lower.contains("emulatorjs") {
+        "https://games.vykylab.dev".to_string()
     } else if lower.contains("pdfcraft") {
         "https://pdfcraft.vykylab.dev".to_string()
     } else if lower.contains("wordcraft") {
@@ -1207,13 +1217,13 @@ fn infer_docker_icon(name: &str, image: &str) -> String {
     let hay = format!("{} {}", name.to_ascii_lowercase(), image.to_ascii_lowercase());
     if hay.contains("adguard") || hay.contains("pihole") || hay.contains("guard") {
         "shield".to_string()
-    } else if hay.contains("immich") || hay.contains("photo") {
+    } else if hay.contains("photocraft") || hay.contains("vectorcraft") || hay.contains("quickimg") || hay.contains("photo") {
         "image".to_string()
     } else if hay.contains("vault") || hay.contains("bitwarden") {
         "lock".to_string()
     } else if hay.contains("traefik") || hay.contains("nginx") || hay.contains("caddy") || hay.contains("memos") {
         "layers".to_string()
-    } else if hay.contains("jellyfin") || hay.contains("plex") {
+    } else if hay.contains("jellyfin") || hay.contains("plex") || hay.contains("emulator") {
         "film".to_string()
     } else if hay.contains("homeassistant") || hay.contains("home-assistant") {
         "home".to_string()
@@ -1223,10 +1233,8 @@ fn infer_docker_icon(name: &str, image: &str) -> String {
         "database".to_string()
     } else if hay.contains("searxng") {
         "globe".to_string()
-    } else if hay.contains("n8n") {
+    } else if hay.contains("n8n") || hay.contains("convertx") {
         "zap".to_string()
-    } else if hay.contains("paperless") {
-        "hard-drive".to_string()
     } else {
         "container".to_string()
     }
@@ -2452,6 +2460,117 @@ async fn run_system_check(State(state): State<AppState>, headers: HeaderMap) -> 
     )
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct WolPayload {
+    pub mac: Option<String>,
+    pub ip: Option<String>,
+}
+
+const DEFAULT_PC_MAC: &str = "d8:bb:c1:3c:f3:ca";
+const DEFAULT_PC_IP: &str = "10.0.1.46";
+const DEFAULT_PC_HOST: &str = "petruvkomp";
+
+fn send_wol_magic_packet(mac_str: &str, target_ip: &str) -> Result<Vec<String>, String> {
+    let cleaned: String = mac_str
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .collect();
+    if cleaned.len() != 12 {
+        return Err(format!("Neplatná MAC adresa '{}'", mac_str));
+    }
+    let mut mac = [0u8; 6];
+    for i in 0..6 {
+        mac[i] = u8::from_str_radix(&cleaned[i * 2..i * 2 + 2], 16)
+            .map_err(|e| format!("Chyba MAC bajtu: {}", e))?;
+    }
+
+    let mut packet = [0u8; 102];
+    packet[..6].fill(0xFF);
+    for i in 0..16 {
+        let offset = 6 + i * 6;
+        packet[offset..offset + 6].copy_from_slice(&mac);
+    }
+
+    let sock = std::net::UdpSocket::bind("0.0.0.0:0")
+        .map_err(|e| format!("Chyba UDP socketu: {}", e))?;
+    sock.set_broadcast(true)
+        .map_err(|e| format!("Nepodařilo se povolit broadcast: {}", e))?;
+
+    let targets = vec![
+        "10.0.1.255:9".to_string(),
+        "10.0.1.255:7".to_string(),
+        "255.255.255.255:9".to_string(),
+        format!("{}:9", target_ip),
+    ];
+    let mut sent_to = Vec::new();
+    for addr in &targets {
+        if sock.send_to(&packet, addr).is_ok() {
+            sent_to.push(addr.clone());
+        }
+    }
+    if sent_to.is_empty() {
+        return Err("Nepodařilo se odeslat Wake-on-LAN Magic Packet na žádnou adresu.".to_string());
+    }
+    Ok(sent_to)
+}
+
+async fn check_host_online(ip: &str) -> bool {
+    let fut = tokio::process::Command::new("ping")
+        .args(["-c", "1", "-W", "1", ip])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    matches!(
+        tokio::time::timeout(Duration::from_millis(1200), fut).await,
+        Ok(Ok(st)) if st.success()
+    )
+}
+
+async fn wake_on_lan_status() -> impl IntoResponse {
+    let online = check_host_online(DEFAULT_PC_IP).await;
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "ok": true,
+            "host": DEFAULT_PC_HOST,
+            "ip": DEFAULT_PC_IP,
+            "mac": DEFAULT_PC_MAC,
+            "online": online,
+        })),
+    )
+}
+
+async fn wake_on_lan_pc(body: axum::body::Bytes) -> impl IntoResponse {
+    let payload: WolPayload = serde_json::from_slice(&body).unwrap_or_default();
+    let mac = payload.mac.as_deref().unwrap_or(DEFAULT_PC_MAC);
+    let ip = payload.ip.as_deref().unwrap_or(DEFAULT_PC_IP);
+
+    match send_wol_magic_packet(mac, ip) {
+        Ok(targets) => {
+            let online = check_host_online(ip).await;
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "ok": true,
+                    "host": DEFAULT_PC_HOST,
+                    "ip": ip,
+                    "mac": mac,
+                    "online": online,
+                    "targets": targets,
+                    "message": format!("Magic Packet odeslán na {} ({}) — probouzím PC!", DEFAULT_PC_HOST, mac),
+                })),
+            )
+        }
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "ok": false,
+                "message": e,
+            })),
+        ),
+    }
+}
+
 async fn upload_file(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -3636,6 +3755,8 @@ async fn main() {
         .route("/api/admin/noticeboard", post(create_noticeboard_item))
         .route("/api/admin/noticeboard/:id", put(update_noticeboard_item).delete(delete_noticeboard_item))
         .route("/api/system/check", post(run_system_check))
+        .route("/api/system/wol", post(wake_on_lan_pc))
+        .route("/api/system/wol/status", get(wake_on_lan_status))
         .route("/api/upload", post(upload_file))
         .route("/api/admin/exec", post(admin_exec))
         .route("/api/admin/pty", get(admin_pty_ws))

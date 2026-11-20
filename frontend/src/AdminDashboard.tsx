@@ -59,6 +59,7 @@ import {
   getProfileAccentColor,
   getProfileAvatarTheme,
 } from './Avatar';
+import { WakePcButton } from './WakePcButton';
 
 type AdminTab = 'dashboard' | 'docker' | 'ssh' | 'processes' | 'profiles' | 'noticeboard';
 type ProcessSortKey = 'cpu' | 'memory' | 'name';
@@ -933,20 +934,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </nav>
             </div>
 
-            <button
-              type="button"
-              onClick={() => void handleGithubUpdate()}
-              disabled={githubUpdating}
-              className="px-3.5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/[0.12] text-xs font-semibold text-white flex items-center gap-2 transition-all disabled:opacity-50 shrink-0"
-              title="Stáhnout nejnovější změny z GitHubu (git pull + build + restart)"
-            >
-              {githubUpdating ? (
-                <RefreshCw className="w-3.5 h-3.5 text-cyan-300 animate-spin" />
-              ) : (
-                <Download className="w-3.5 h-3.5 text-cyan-300" />
-              )}
-              <span>{githubUpdating ? 'Aktualizuji...' : 'Aktualizovat z GitHubu'}</span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <WakePcButton onToast={onShowToast} />
+
+              <button
+                type="button"
+                onClick={() => void handleGithubUpdate()}
+                disabled={githubUpdating}
+                className="px-3.5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/[0.12] text-xs font-semibold text-white flex items-center gap-2 transition-all disabled:opacity-50 shrink-0"
+                title="Stáhnout nejnovější změny z GitHubu (git pull + build + restart)"
+              >
+                {githubUpdating ? (
+                  <RefreshCw className="w-3.5 h-3.5 text-cyan-300 animate-spin" />
+                ) : (
+                  <Download className="w-3.5 h-3.5 text-cyan-300" />
+                )}
+                <span>{githubUpdating ? 'Aktualizuji...' : 'Aktualizovat z GitHubu'}</span>
+              </button>
+            </div>
           </div>
         </header>
 

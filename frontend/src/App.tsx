@@ -45,6 +45,7 @@ import type {
   UserShortcut,
 } from './types';
 import { AdminDashboard } from './AdminDashboard';
+import { WakePcButton } from './WakePcButton';
 import {
   AVATAR_COLOR_OPTIONS,
   AVATAR_CONFIG,
@@ -1164,6 +1165,8 @@ export default function App() {
                 />
                 <span>{data.monitoring.host_name}</span>
               </div>
+
+              <WakePcButton onToast={showToast} />
 
               <button
                 type="button"
