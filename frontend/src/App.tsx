@@ -905,10 +905,20 @@ export default function App() {
         onSubmit={handlePinSubmit}
         className="apple-card relative w-full max-w-[336px] px-6 py-7 space-y-6 text-center"
       >
-        {/* Clean minimal Apple header */}
-        <h2 className="text-lg font-semibold tracking-tight text-white">
-          Zadej PIN kód
-        </h2>
+        <div className="space-y-2.5">
+          <AvatarBadge
+            profile={pinTargetProfile}
+            className="mx-auto !w-12 !h-12 !rounded-2xl shadow-lg"
+          />
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight text-white">
+              Odemknout · {pinTargetProfile.name}
+            </h2>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              {pinTargetProfile.role} · Zadej PIN kód
+            </p>
+          </div>
+        </div>
 
         {/* Clean floating PIN dots (no heavy inner box) */}
         <div className="space-y-2">
@@ -1020,37 +1030,52 @@ export default function App() {
   if (showProfileHub) {
     const vProfiles = arrangeVFormation(data.profiles);
     const centerIdx = (vProfiles.length - 1) / 2;
+    const dockerSvcList = data.services.filter((s) => s.is_docker !== false);
+    const dockerOnlineCount = dockerSvcList.filter((s) => s.status === 'running').length;
+    const hasTabSession = Boolean(sessionStorage.getItem(TAB_PROFILE_STORAGE_KEY));
 
     return (
       <div
-        className="min-h-screen bg-[#09090b] text-white flex flex-col items-center justify-center px-4 py-10 overflow-x-hidden"
+        className="min-h-screen bg-[#09090b] text-white flex flex-col items-center justify-center px-4 py-8 sm:py-10 overflow-x-hidden"
         style={{
           backgroundImage:
             'radial-gradient(ellipse 65% 45% at 50% 0%, rgba(34,211,238,0.13), transparent)',
         }}
       >
-        <div className="w-full max-w-5xl space-y-8">
+        <div className="w-full max-w-5xl space-y-7 sm:space-y-8">
           <div className="text-center space-y-3">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.05] border border-white/[0.08] text-xs text-zinc-300">
+            <div className="inline-flex items-center gap-2.5 px-3.5 py-1 rounded-full bg-white/[0.05] border border-white/[0.08] text-xs text-zinc-300">
               <span
-                className={`w-2 h-2 rounded-full ${data.system_healthy ? 'bg-emerald-400' : 'bg-amber-400'
+                className={`w-2 h-2 rounded-full ${data.system_healthy ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-amber-400'
                   }`}
               />
               <span>
                 {profile.workspace_label} · {data.monitoring.host_name}
               </span>
+              {dockerSvcList.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-400/25 text-[10px] font-mono text-emerald-300">
+                  {dockerOnlineCount}/{dockerSvcList.length} online
+                </span>
+              )}
             </div>
 
-            <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">
-              Vyber si profil
-            </h1>
+            <div className="space-y-1.5">
+              <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">
+                Vyber si profil
+              </h1>
+              <p className="text-xs sm:text-sm text-zinc-400">
+                Kdo dneska přebírá velení? Vyber svůj účet.
+              </p>
+            </div>
           </div>
 
-          {/* V-Formation ("Rojnice do V") */}
-          <div className="group/vrow flex flex-wrap sm:flex-nowrap items-end justify-center gap-5 sm:gap-2 pt-8 pb-6">
+          {/* Mobile: symmetric 2-col grid · Desktop: V-Formation ("Rojnice do V") */}
+          <div className="group/vrow grid grid-cols-2 gap-x-4 gap-y-7 pt-2 pb-2 sm:flex sm:flex-nowrap sm:items-end sm:justify-center sm:gap-2 sm:pt-8 sm:pb-6">
             {vProfiles.map((p, idx) => {
-              const isCurrent = p.id === profile.id;
+              const isCurrent = hasTabSession && p.id === profile.id;
               const cardTheme = getProfileAvatarTheme(p);
+              const pAccent = getProfileAccentColor(p);
+              const isOddLast = vProfiles.length % 2 === 1 && idx === vProfiles.length - 1;
               const dist = Math.abs(idx - centerIdx);
               const depthClass =
                 dist < 0.5
@@ -1071,17 +1096,17 @@ export default function App() {
                   type="button"
                   onClick={() => handleSelectProfile(p, true)}
                   disabled={busyId === `act-${p.id}`}
-                  className={`group relative flex flex-col items-center focus:outline-none transition-all duration-300 ease-out hover:!z-50 group-hover/vrow:opacity-45 hover:!opacity-100 ${idx > 0 ? 'sm:-ml-2' : ''} ${depthClass}`}
+                  className={`group relative flex flex-col items-center focus:outline-none transition-all duration-300 ease-out hover:!z-50 sm:group-hover/vrow:opacity-45 hover:!opacity-100 ${idx > 0 ? 'sm:-ml-2' : ''} ${isOddLast ? 'col-span-2 justify-self-center sm:col-span-1' : ''} ${depthClass}`}
                 >
                   {/* Ambient Glow behind Orb */}
                   <div
                     aria-hidden="true"
-                    className={`pointer-events-none absolute -top-4 ${AVATAR_CONFIG.orb.glowClass} rounded-full blur-2xl opacity-50 group-hover:opacity-100 transition-opacity duration-300 ${cardTheme.glow}`}
+                    className={`pointer-events-none absolute -top-4 ${AVATAR_CONFIG.orb.glowClass} rounded-full blur-2xl opacity-55 group-hover:opacity-100 transition-opacity duration-300 ${cardTheme.glow}`}
                     style={cardTheme.glowStyle}
                   />
 
                   {/* Expressive Colored Avatar Orb */}
-                  <div className="mb-2 transition-transform duration-300 ease-out group-hover:-translate-y-3">
+                  <div className="mb-2 transition-transform duration-300 ease-out group-hover:-translate-y-3 group-active:scale-95">
                     <AvatarOrb
                       profile={p}
                       eyeShiftClass={eyeDirection}
@@ -1092,31 +1117,79 @@ export default function App() {
                   {/* Subtle floor shadow */}
                   <div
                     aria-hidden="true"
-                    className="w-24 h-2.5 rounded-full bg-black/75 blur-sm mb-3 transition-all duration-300 ease-out group-hover:w-20 group-hover:opacity-40"
+                    className="w-24 h-2.5 rounded-full bg-black/75 blur-sm mb-2.5 transition-all duration-300 ease-out group-hover:w-20 group-hover:opacity-40"
                   />
 
-                  {/* Minimal Name Pill */}
+                  {/* Polished Profile Pill with Accent Dot, Role/Location & Active Indicator */}
                   <div
-                    className={`px-5 py-2 rounded-2xl border backdrop-blur-xl transition-all duration-300 ease-out flex items-center justify-center ${isCurrent
-                        ? 'bg-white/[0.1] border-white/25 shadow-[0_10px_28px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.16)]'
+                    style={{
+                      borderColor: isCurrent
+                        ? `rgba(${pAccent.rgb}, 0.45)`
+                        : undefined,
+                      boxShadow: isCurrent
+                        ? `0 12px 30px -10px rgba(${pAccent.rgb}, 0.35), inset 0 1px 0 rgba(255,255,255,0.16)`
+                        : undefined,
+                    }}
+                    className={`min-w-[138px] sm:min-w-[144px] px-4 py-2 rounded-2xl border backdrop-blur-xl transition-all duration-300 ease-out flex flex-col items-center justify-center gap-0.5 ${isCurrent
+                        ? 'bg-white/[0.11] border-white/25'
                         : 'bg-[#111115]/85 border-white/[0.08] shadow-[0_8px_20px_rgba(0,0,0,0.5)]'
                       } group-hover:bg-white/[0.14] group-hover:border-white/35 group-hover:-translate-y-0.5 group-hover:shadow-[0_14px_32px_rgba(0,0,0,0.7),inset_0_1px_0_rgba(255,255,255,0.22)]`}
                   >
-                    <span className="text-sm font-semibold tracking-tight text-zinc-200 group-hover:text-white transition-colors whitespace-nowrap">
-                      {p.name}
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{
+                          backgroundColor: pAccent.hex,
+                          boxShadow: `0 0 8px ${pAccent.hex}`,
+                        }}
+                      />
+                      <span className="text-sm font-semibold tracking-tight text-zinc-100 group-hover:text-white transition-colors whitespace-nowrap">
+                        {p.name}
+                      </span>
+                      {p.has_pin && (
+                        <Lock className="w-3 h-3 text-amber-300/90 shrink-0" />
+                      )}
+                      {isCurrent && (
+                        <span
+                          className="ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wider text-zinc-950"
+                          style={{ backgroundColor: pAccent.hex }}
+                        >
+                          Aktivní
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-zinc-400 group-hover:text-zinc-300 transition-colors truncate max-w-[140px]">
+                      {p.role} · {p.location}
                     </span>
                   </div>
                 </button>
               );
             })}
           </div>
+
+          {hasTabSession && (
+            <div className="flex justify-center pt-1">
+              <button
+                type="button"
+                onClick={() => setShowProfileHub(false)}
+                className="inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full bg-white/[0.07] hover:bg-white/[0.14] border border-white/[0.12] text-xs font-medium text-zinc-200 hover:text-white transition-all active:scale-[0.98]"
+              >
+                <AvatarBadge
+                  profile={profile}
+                  className="!w-5 !h-5 !rounded-md !text-[10px]"
+                />
+                <span>Pokračovat jako {profile.name}</span>
+                <ArrowRight className="w-3.5 h-3.5 text-zinc-400" />
+              </button>
+            </div>
+          )}
         </div>
         {pinModal}
       </div>
     );
   }
 
-  if (profile.is_admin && (profile.id === 'prof-sudo' || profile.name === 'sudo')) {
+  if (profile.is_admin) {
     return (
       <>
         <AdminDashboard

@@ -22,7 +22,9 @@ import {
   KeyRound,
   Layers,
   Lock,
+  Maximize2,
   MemoryStick,
+  Minimize2,
   Network,
   Palette,
   Pencil,
@@ -136,6 +138,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     'connecting' | 'connected' | 'closed' | 'error'
   >('connecting');
   const [ptyReconnectSeq, setPtyReconnectSeq] = useState(0);
+  const [sshFullscreen, setSshFullscreen] = useState(false);
   const ptyContainerRef = useRef<HTMLDivElement | null>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -780,6 +783,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   }, [activeTab, data.ssh.active_connection_id, data.active_profile.id, ptyReconnectSeq]);
 
+  useEffect(() => {
+    if (activeTab !== 'ssh') {
+      setSshFullscreen(false);
+      return;
+    }
+    const fitOnToggle = () => {
+      const fitAddon = fitAddonRef.current;
+      const term = xtermRef.current;
+      const ws = ptyWsRef.current;
+      if (!fitAddon || !term) return;
+      try {
+        fitAddon.fit();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        }
+      } catch {
+        // Ignore fit measurements while layout settles
+      }
+    };
+    const rafId = window.requestAnimationFrame(fitOnToggle);
+    const timerId = window.setTimeout(fitOnToggle, 80);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(timerId);
+    };
+  }, [sshFullscreen, activeTab]);
+
   const sendPtyInput = (raw: string): boolean => {
     const ws = ptyWsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -899,44 +929,75 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     >
       <div className="max-w-[1380px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 flex-1 min-h-0 flex flex-col gap-5">
         {/* ================================================================ */}
-        {/* SUDO TOP NAVIGATION BAR                                          */}
+        {/* ADMIN TOP NAVIGATION BAR                                         */}
         {/* ================================================================ */}
-        <header className="shrink-0 flex items-center gap-3.5">
+        <header className="shrink-0 flex flex-col lg:flex-row lg:items-center gap-3.5">
           <button
             type="button"
             onClick={onOpenProfileHub}
-            className="hover:scale-[1.04] transition-transform shrink-0"
+            className="hidden lg:block hover:scale-[1.04] transition-transform shrink-0"
             title="Vybrat profil"
           >
             <AvatarBadge profile={profile} />
           </button>
 
-          <div className="flex-1 apple-card px-5 py-2.5 flex flex-wrap items-center justify-between gap-4 min-w-0">
-            <div className="flex items-center gap-6 min-w-0 flex-wrap">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-base font-semibold tracking-tight text-white">
-                    Sudo
-                  </span>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300 border border-amber-400/30">
-                    Admin
-                  </span>
+          <div className="flex-1 apple-card p-3 sm:px-5 sm:py-2.5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 lg:gap-4 min-w-0">
+            <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-6 min-w-0 w-full lg:w-auto">
+              <div className="flex items-center justify-between gap-2.5 min-w-0">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <button
+                    type="button"
+                    onClick={onOpenProfileHub}
+                    className="lg:hidden hover:scale-[1.04] transition-transform shrink-0"
+                    title="Vybrat profil"
+                  >
+                    <AvatarBadge
+                      profile={profile}
+                      className="!w-10 !h-10 !rounded-xl !text-sm"
+                    />
+                  </button>
+
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base font-semibold tracking-tight text-white">
+                        Admin
+                      </span>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300 border border-amber-400/30">
+                        Root
+                      </span>
+                    </div>
+                    <div className="text-xs text-zinc-400 truncate">
+                      {profile.workspace_label} / Admin
+                    </div>
+                  </div>
                 </div>
-                <div className="text-xs text-zinc-400 truncate">
-                  {profile.workspace_label} / Sudo
-                </div>
+
+                <button
+                  type="button"
+                  onClick={() => void handleGithubUpdate()}
+                  disabled={githubUpdating}
+                  className="lg:hidden px-3 py-1.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/[0.12] text-xs font-semibold text-white flex items-center gap-1.5 transition-all disabled:opacity-50 shrink-0"
+                  title="Stáhnout nejnovější změny z GitHubu (git pull + build + restart)"
+                >
+                  {githubUpdating ? (
+                    <RefreshCw className="w-3.5 h-3.5 text-cyan-300 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5 text-cyan-300" />
+                  )}
+                  <span>{githubUpdating ? 'Aktualizuji...' : 'Aktualizovat'}</span>
+                </button>
               </div>
 
-              {/* Inline Admin Tabs matching reference */}
-              <nav className="flex items-center gap-1.5 flex-wrap">
+              {/* Mobile: neat 3x2 thumb grid · Desktop: inline tab pills */}
+              <nav className="grid grid-cols-3 gap-1.5 w-full lg:w-auto lg:flex lg:items-center lg:flex-wrap">
                 {(
                   [
-                    ['dashboard', 'Dashboard', <Layers className="w-3.5 h-3.5" />],
-                    ['docker', 'Docker', <Container className="w-3.5 h-3.5" />],
-                    ['ssh', 'SSH', <Terminal className="w-3.5 h-3.5" />],
-                    ['processes', 'Procesy', <Activity className="w-3.5 h-3.5" />],
-                    ['profiles', 'Profiles', <Users className="w-3.5 h-3.5" />],
-                    ['noticeboard', 'Nástěnka', <Pin className="w-3.5 h-3.5" />],
+                    ['dashboard', 'Dashboard', <Layers className="w-3.5 h-3.5 shrink-0" />],
+                    ['docker', 'Docker', <Container className="w-3.5 h-3.5 shrink-0" />],
+                    ['ssh', 'SSH', <Terminal className="w-3.5 h-3.5 shrink-0" />],
+                    ['processes', 'Procesy', <Activity className="w-3.5 h-3.5 shrink-0" />],
+                    ['profiles', 'Profiles', <Users className="w-3.5 h-3.5 shrink-0" />],
+                    ['noticeboard', 'Nástěnka', <Pin className="w-3.5 h-3.5 shrink-0" />],
                   ] as [AdminTab, string, React.ReactNode][]
                 ).map(([key, label, icon]) => {
                   const active = activeTab === key;
@@ -945,13 +1006,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       key={key}
                       type="button"
                       onClick={() => setActiveTab(key)}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-medium flex items-center gap-2 transition-all ${active
+                      className={`min-w-0 px-2.5 py-2 lg:px-3.5 lg:py-1.5 rounded-xl text-xs font-medium flex items-center justify-center lg:justify-start gap-1.5 lg:gap-2 transition-all ${active
                           ? 'bg-white text-zinc-950 font-semibold shadow-sm'
-                          : 'text-zinc-300 hover:text-white hover:bg-white/[0.06]'
+                          : 'bg-white/[0.03] lg:bg-transparent text-zinc-300 hover:text-white hover:bg-white/[0.06]'
                         }`}
                     >
                       {icon}
-                      <span>{label}</span>
+                      <span className="truncate">{label}</span>
                     </button>
                   );
                 })}
@@ -962,7 +1023,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               type="button"
               onClick={() => void handleGithubUpdate()}
               disabled={githubUpdating}
-              className="px-3.5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/[0.12] text-xs font-semibold text-white flex items-center gap-2 transition-all disabled:opacity-50 shrink-0"
+              className="hidden lg:flex px-3.5 py-2 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/[0.12] text-xs font-semibold text-white items-center gap-2 transition-all disabled:opacity-50 shrink-0"
               title="Stáhnout nejnovější změny z GitHubu (git pull + build + restart)"
             >
               {githubUpdating ? (
@@ -1065,8 +1126,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </section>
             </div>
 
-            {/* CENTER COLUMN (4 COLS): POLISHED CYAN AVATAR NODE STAGE */}
-            <section className="group/stage lg:col-span-4 apple-card p-6 flex flex-col justify-between relative overflow-hidden min-h-[440px]">
+            {/* CENTER COLUMN (4 COLS): POLISHED AVATAR NODE STAGE (FIRST WIDGET ON MOBILE) */}
+            <section className="group/stage order-first lg:order-none lg:col-span-4 apple-card p-5 lg:p-6 flex flex-col justify-between relative overflow-hidden min-h-[300px] lg:min-h-[440px]">
               {/* Top Node Header */}
               <div className="relative z-10 flex items-center justify-between gap-2">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.06] border border-white/[0.08] text-xs text-zinc-200">
@@ -1088,8 +1149,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               {/* Centerpiece: Steady Avatar (holds NOTHING unless hovering a telemetry widget) */}
               <div className="relative z-10 flex flex-col items-center justify-center my-auto py-2">
-                {/* Dedicated fixed-height Inspector Card slot above head (zero layout shift) */}
-                <div className="h-[108px] w-full flex items-end justify-center mb-3">
+                {/* Dedicated fixed-height Inspector Card slot above head (collapsed on mobile when idle) */}
+                <div
+                  className={`${
+                    hoveredMetric !== null ? 'flex h-[108px]' : 'hidden lg:flex lg:h-[108px]'
+                  } w-full items-end justify-center mb-3`}
+                >
                   <div
                     className={`relative w-64 rounded-2xl bg-[#111114]/95 backdrop-blur-2xl border border-white/[0.14] shadow-[0_20px_48px_rgba(0,0,0,0.85),inset_0_1px_0_rgba(255,255,255,0.14)] px-4 py-3 text-left transition-all duration-200 ease-out ${hoveredMetric !== null
                         ? 'opacity-100 translate-y-0 scale-100'
@@ -1847,47 +1912,79 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </section>
 
               {/* RIGHT PANEL (8 COLS): FULL-HEIGHT LIVE XTERM.JS PTY TERMINAL */}
-              <section className="lg:col-span-8 lg:h-full apple-card p-5 flex flex-col gap-3.5 min-h-[420px]">
-                <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-white/[0.07]">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span
-                      className={`w-2 h-2 rounded-full shrink-0 ${
-                        ptyStatusText === 'connected'
-                          ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.75)]'
+              <section
+                className={`lg:col-span-8 lg:h-full flex flex-col gap-3 min-w-0 overflow-hidden ${
+                  sshFullscreen
+                    ? 'max-lg:fixed max-lg:inset-0 max-lg:z-[70] max-lg:rounded-none max-lg:h-[100dvh] max-lg:w-screen max-lg:p-3 max-lg:bg-[#09090b] max-lg:border-0 lg:apple-card lg:p-5'
+                    : 'apple-card p-4 sm:p-5 min-h-[420px]'
+                }`}
+              >
+                <div className="shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-3 border-b border-white/[0.07] min-w-0">
+                  <div className="flex items-center justify-between gap-2 min-w-0 w-full sm:w-auto">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${
+                          ptyStatusText === 'connected'
+                            ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.75)]'
+                            : ptyStatusText === 'connecting'
+                              ? 'bg-amber-400 animate-pulse'
+                              : 'bg-rose-400'
+                        }`}
+                      />
+                      <span className="text-sm font-semibold text-white truncate">
+                        {activeConn?.name || 'Shell'}
+                      </span>
+                      <span className="text-[11px] font-mono text-zinc-400 truncate">
+                        ({promptLabel})
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wider shrink-0 ${
+                          ptyConnected
+                            ? 'bg-emerald-500/15 border-emerald-400/35 text-emerald-300'
+                            : ptyStatusText === 'connecting'
+                              ? 'bg-amber-500/15 border-amber-400/35 text-amber-300'
+                              : 'bg-rose-500/15 border-rose-400/35 text-rose-300'
+                        }`}
+                      >
+                        {ptyConnected
+                          ? 'LIVE PTY'
                           : ptyStatusText === 'connecting'
-                            ? 'bg-amber-400 animate-pulse'
-                            : 'bg-rose-400'
-                      }`}
-                    />
-                    <span className="text-sm font-semibold text-white truncate">
-                      {activeConn?.name || 'Shell'}
-                    </span>
-                    <span className="text-[11px] font-mono text-zinc-400 truncate">
-                      ({promptLabel})
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wider shrink-0 ${
-                        ptyConnected
-                          ? 'bg-emerald-500/15 border-emerald-400/35 text-emerald-300'
-                          : ptyStatusText === 'connecting'
-                            ? 'bg-amber-500/15 border-amber-400/35 text-amber-300'
-                            : 'bg-rose-500/15 border-rose-400/35 text-rose-300'
-                      }`}
+                            ? 'Připojování...'
+                            : 'Odpojeno'}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setSshFullscreen((v) => !v)}
+                      className="lg:hidden shrink-0 px-2.5 py-1.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/[0.12] text-xs font-semibold text-cyan-200 flex items-center gap-1.5 transition-colors"
+                      title={
+                        sshFullscreen
+                          ? 'Ukončit režim celé obrazovky'
+                          : 'Zobrazit terminál přes celou obrazovku'
+                      }
                     >
-                      {ptyConnected
-                        ? 'LIVE PTY'
-                        : ptyStatusText === 'connecting'
-                          ? 'Připojování...'
-                          : 'Odpojeno'}
-                    </span>
+                      {sshFullscreen ? (
+                        <>
+                          <Minimize2 className="w-3.5 h-3.5" />
+                          <span>Zavřít</span>
+                        </>
+                      ) : (
+                        <>
+                          <Maximize2 className="w-3.5 h-3.5" />
+                          <span>Fullscreen</span>
+                        </>
+                      )}
+                    </button>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  {/* Mobile: neatly contained 3-col grid so actions never overflow card · sm+: inline pills */}
+                  <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto min-w-0">
                     <button
                       type="button"
                       disabled={!ptyConnected}
                       onClick={() => runSshCommand('sudo su')}
-                      className="px-3 py-1.5 rounded-full bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/35 text-xs font-medium text-cyan-200 transition-colors disabled:opacity-40"
+                      className="min-w-0 truncate px-2 sm:px-3 py-1.5 rounded-xl sm:rounded-full bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/35 text-[11px] sm:text-xs font-medium text-cyan-200 transition-colors disabled:opacity-40"
                       title="Přepnout na root shell (sudo su)"
                     >
                       sudo su
@@ -1896,7 +1993,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       type="button"
                       disabled={!ptyConnected}
                       onClick={() => sendPtyInput('\x03')}
-                      className="px-3 py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/35 text-xs font-mono font-medium text-rose-200 transition-colors disabled:opacity-40"
+                      className="min-w-0 truncate px-2 sm:px-3 py-1.5 rounded-xl sm:rounded-full bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/35 text-[11px] sm:text-xs font-mono font-medium text-rose-200 transition-colors disabled:opacity-40"
                       title="Poslat SIGINT (Ctrl+C)"
                     >
                       Ctrl+C
@@ -1907,18 +2004,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         xtermRef.current?.clear();
                         sendPtyInput('clear\r');
                       }}
-                      className="px-3 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-zinc-200 transition-colors"
+                      className="min-w-0 truncate px-2 sm:px-3 py-1.5 rounded-xl sm:rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-[11px] sm:text-xs font-medium text-zinc-200 transition-colors"
                     >
                       Vyčistit
                     </button>
                     <button
                       type="button"
                       onClick={() => setPtyReconnectSeq((s) => s + 1)}
-                      className="px-3 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-xs font-medium text-zinc-200 flex items-center gap-1.5 transition-colors"
+                      className="min-w-0 justify-center px-2 sm:px-3 py-1.5 rounded-xl sm:rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-[11px] sm:text-xs font-medium text-zinc-200 flex items-center gap-1 sm:gap-1.5 transition-colors"
                       title="Restartovat PTY relaci"
                     >
-                      <RotateCw className="w-3.5 h-3.5" />
-                      Restart shellu
+                      <RotateCw className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">Restart</span>
+                      <span className="hidden sm:inline">shellu</span>
                     </button>
                     <button
                       type="button"
@@ -1926,16 +2024,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         setSshSettingsTab('connections');
                         setSshSettingsOpen(true);
                       }}
-                      className="px-3 py-1.5 rounded-full bg-white text-zinc-950 font-semibold text-xs flex items-center gap-1.5 hover:bg-zinc-200 transition-colors"
+                      className="col-span-2 sm:col-span-1 min-w-0 justify-center px-2 sm:px-3 py-1.5 rounded-xl sm:rounded-full bg-white text-zinc-950 font-semibold text-[11px] sm:text-xs flex items-center gap-1.5 hover:bg-zinc-200 transition-colors"
                     >
-                      <Settings className="w-3.5 h-3.5" />
-                      Nastavení
+                      <Settings className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">Nastavení</span>
                     </button>
                   </div>
                 </div>
 
+                {sshFullscreen && data.ssh.shortcuts.length > 0 && (
+                  <div className="lg:hidden shrink-0 flex items-center gap-1.5 overflow-x-auto pb-1">
+                    {data.ssh.shortcuts.map((sc) => (
+                      <button
+                        key={sc.id}
+                        type="button"
+                        onClick={() => void runSshCommand(sc.command)}
+                        className="shrink-0 px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-[11px] font-medium text-zinc-200 transition-colors"
+                      >
+                        {sc.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <div
-                  className="apple-well flex-1 min-h-[340px] p-3 overflow-hidden relative bg-[#0a0a0d] cursor-text"
+                  className="apple-well flex-1 min-h-[340px] p-2.5 sm:p-3 overflow-hidden relative bg-[#0a0a0d] cursor-text"
                   onClick={() => xtermRef.current?.focus()}
                 >
                   <div ref={ptyContainerRef} className="w-full h-full" />
@@ -1991,7 +2104,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                 {/* Avatar + Hover Inspector Card */}
                 <div className="relative z-10 flex flex-col items-center justify-center my-auto py-2">
-                  <div className="h-[100px] w-full flex items-end justify-center mb-3">
+                  <div
+                    className={`${
+                      hoveredProcess !== null ? 'flex h-[100px]' : 'hidden lg:flex lg:h-[100px]'
+                    } w-full items-end justify-center mb-3`}
+                  >
                     <div
                       className={`relative w-64 rounded-2xl bg-[#111114]/95 backdrop-blur-2xl border border-white/[0.14] shadow-[0_20px_48px_rgba(0,0,0,0.85),inset_0_1px_0_rgba(255,255,255,0.14)] px-4 py-3 text-left transition-all duration-200 ease-out ${hoveredProcess !== null
                           ? 'opacity-100 translate-y-0 scale-100'
@@ -2107,58 +2224,86 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               {/* RIGHT COLUMN (8 COLS): SUMMARY KPI STRIP + PROCESS LIST */}
               <div className="lg:col-span-8 lg:h-full flex flex-col gap-4 min-h-0">
-                {/* Summary KPI Strip */}
-                <div className="grid grid-cols-3 gap-4 shrink-0">
-                  <div className="apple-card px-5 py-3.5 flex items-center justify-between gap-2">
+                {/* Summary KPI Strip (Mobile: spacious 2-col CPU/RAM + full-width Processes card · Desktop: 3 cols) */}
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5 lg:gap-4 shrink-0">
+                  <div className="col-span-2 lg:col-span-1 apple-card p-3.5 lg:px-5 lg:py-3.5 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-[11px] text-zinc-400">Aktivní procesy</div>
-                      <div className="text-2xl font-semibold font-mono text-white mt-0.5">
-                        {mon.process_count}
-                      </div>
-                      <div className="text-[11px] text-zinc-500 truncate mt-0.5">
-                        zobrazeno {filteredProcesses.length}
+                      <div className="flex items-baseline gap-2 mt-0.5">
+                        <div className="text-2xl font-semibold font-mono text-white">
+                          {mon.process_count}
+                        </div>
+                        <span className="text-[11px] text-zinc-500">
+                          zobrazeno {filteredProcesses.length}
+                        </span>
                       </div>
                     </div>
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_10px_#34d399] shrink-0" />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="lg:hidden px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/[0.08] text-[10px] font-mono text-zinc-300">
+                        Load {mon.load_avg}
+                      </span>
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_10px_#34d399] shrink-0" />
+                    </div>
                   </div>
 
-                  <div className="apple-card px-5 py-3.5 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-[11px] text-zinc-400">CPU zátěž</div>
-                      <div className="text-2xl font-semibold font-mono text-white mt-0.5">
-                        {mon.cpu_percent.toFixed(1)}%
+                  <div className="apple-card p-3.5 lg:px-5 lg:py-3.5 flex flex-col justify-between gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-[11px] text-zinc-400">CPU zátěž</div>
+                        <div className="text-xl sm:text-2xl font-semibold font-mono text-white mt-0.5">
+                          {mon.cpu_percent.toFixed(1)}%
+                        </div>
+                        <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                          {mon.top_cpu_proc}
+                        </div>
                       </div>
-                      <div className="text-[11px] text-zinc-500 truncate mt-0.5">
-                        {mon.top_cpu_proc}
+                      <div className="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-400/20 flex items-center justify-center shrink-0">
+                        <Cpu className="w-4 h-4 text-cyan-300" />
                       </div>
                     </div>
-                    <Cpu className="w-4 h-4 text-cyan-300 shrink-0" />
+                    <div className="lg:hidden h-1 rounded-full bg-white/[0.07] overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-white transition-all duration-500"
+                        style={{ width: `${Math.min(100, Math.max(4, mon.cpu_percent))}%` }}
+                      />
+                    </div>
                   </div>
 
-                  <div className="apple-card px-5 py-3.5 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-[11px] text-zinc-400">Paměť RAM</div>
-                      <div className="text-2xl font-semibold font-mono text-white mt-0.5">
-                        {mon.ram_used_gb.toFixed(1)} GB
+                  <div className="apple-card p-3.5 lg:px-5 lg:py-3.5 flex flex-col justify-between gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-[11px] text-zinc-400">Paměť RAM</div>
+                        <div className="text-xl sm:text-2xl font-semibold font-mono text-white mt-0.5">
+                          {mon.ram_used_gb.toFixed(1)} GB
+                        </div>
+                        <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                          <span className="lg:hidden">{mon.ram_percent.toFixed(0)}% · </span>
+                          {mon.top_ram_proc}
+                        </div>
                       </div>
-                      <div className="text-[11px] text-zinc-500 truncate mt-0.5">
-                        {mon.top_ram_proc}
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-400/20 flex items-center justify-center shrink-0">
+                        <MemoryStick className="w-4 h-4 text-emerald-300" />
                       </div>
                     </div>
-                    <MemoryStick className="w-4 h-4 text-emerald-300 shrink-0" />
+                    <div className="lg:hidden h-1 rounded-full bg-white/[0.07] overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-emerald-400 transition-all duration-500"
+                        style={{ width: `${Math.min(100, Math.max(4, mon.ram_percent))}%` }}
+                      />
+                    </div>
                   </div>
                 </div>
 
                 {/* Process List Card */}
-                <div className="apple-card p-4 sm:p-5 flex-1 min-h-0 flex flex-col">
-                  <div className="grid grid-cols-12 gap-3 px-3 pb-2.5 border-b border-white/[0.08] text-[11px] font-medium text-zinc-400 uppercase tracking-wider shrink-0">
+                <div className="apple-card p-3.5 sm:p-5 flex-1 min-h-0 flex flex-col">
+                  <div className="hidden sm:grid grid-cols-12 gap-3 px-3 pb-2.5 border-b border-white/[0.08] text-[11px] font-medium text-zinc-400 uppercase tracking-wider shrink-0">
                     <div className="col-span-5">Proces / Příkaz</div>
                     <div className="col-span-2 text-right">PID</div>
                     <div className="col-span-2 text-right">CPU</div>
                     <div className="col-span-3 text-right">Paměť</div>
                   </div>
 
-                  <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-1.5 mt-2">
+                  <div className="flex-1 min-h-0 overflow-y-auto pr-0.5 sm:pr-1 space-y-2 sm:space-y-1.5 sm:mt-2">
                     {filteredProcesses.length === 0 ? (
                       <div className="apple-well p-8 text-center text-xs text-zinc-500">
                         Žádné procesy neodpovídají filtru „{processSearch}“.
@@ -2172,68 +2317,123 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         return (
                           <div
                             key={proc.pid}
+                            onClick={() => setHoveredProcess(proc)}
                             onMouseEnter={() => setHoveredProcess(proc)}
                             onMouseLeave={() => setHoveredProcess(null)}
-                            className="apple-well px-3.5 py-2.5 grid grid-cols-12 items-center gap-3 hover:border-white/25 transition-colors cursor-default"
+                            className="apple-well px-3.5 py-2.5 flex flex-col sm:grid sm:grid-cols-12 sm:items-center gap-2 sm:gap-3 hover:border-white/25 transition-colors cursor-pointer sm:cursor-default"
                           >
-                            <div className="col-span-5 flex items-center gap-2.5 min-w-0">
-                              <span
-                                className={`w-2 h-2 rounded-full shrink-0 ${isHighCpu
-                                    ? 'bg-amber-400 shadow-[0_0_8px_#fbbf24]'
-                                    : isActiveCpu
-                                      ? 'bg-cyan-400 shadow-[0_0_8px_#22d3ee]'
-                                      : proc.status === 'Run'
-                                        ? 'bg-emerald-400'
-                                        : 'bg-zinc-600'
-                                  }`}
-                              />
-                              <div className="min-w-0">
-                                <div className="text-xs font-semibold text-white truncate">
-                                  {proc.name}
+                            {/* Mobile 2-row card */}
+                            <div className="sm:hidden space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span
+                                    className={`w-2 h-2 rounded-full shrink-0 ${isHighCpu
+                                        ? 'bg-amber-400 shadow-[0_0_8px_#fbbf24]'
+                                        : isActiveCpu
+                                          ? 'bg-cyan-400 shadow-[0_0_8px_#22d3ee]'
+                                          : proc.status === 'Run'
+                                            ? 'bg-emerald-400'
+                                            : 'bg-zinc-600'
+                                      }`}
+                                  />
+                                  <span className="text-xs font-semibold text-white truncate">
+                                    {proc.name}
+                                  </span>
                                 </div>
-                                <div className="text-[11px] font-mono text-zinc-500 truncate">
-                                  {proc.cmd}
+
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-md bg-white/[0.05] text-[11px] font-mono font-semibold ${isHighCpu
+                                        ? 'text-amber-300'
+                                        : isActiveCpu
+                                          ? 'text-cyan-300'
+                                          : 'text-zinc-300'
+                                      }`}
+                                  >
+                                    {proc.cpu_percent.toFixed(1)}%
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded-md bg-white/[0.05] text-[11px] font-mono text-white">
+                                    {formatProcMemory(proc.memory_mb)}
+                                  </span>
                                 </div>
                               </div>
-                            </div>
 
-                            <div className="col-span-2 text-right">
-                              <div className="text-xs font-mono text-zinc-300">
-                                {proc.pid}
+                              <div className="flex items-center justify-between gap-2 text-[10px] font-mono text-zinc-500">
+                                <span className="truncate">{proc.cmd}</span>
+                                <span className="shrink-0">
+                                  PID {proc.pid} · {proc.status} · {formatProcRuntime(proc.run_time_secs)}
+                                </span>
                               </div>
-                              <div className="text-[10px] font-mono text-zinc-500">
-                                {proc.status}
-                              </div>
-                            </div>
 
-                            <div className="col-span-2 text-right">
-                              <div
-                                className={`text-xs font-mono font-semibold ${isHighCpu
-                                    ? 'text-amber-300'
-                                    : isActiveCpu
-                                      ? 'text-cyan-300'
-                                      : 'text-zinc-300'
-                                  }`}
-                              >
-                                {proc.cpu_percent.toFixed(1)}%
-                              </div>
-                              <div className="h-1 w-full rounded-full bg-white/[0.06] overflow-hidden mt-1">
+                              <div className="h-1 w-full rounded-full bg-white/[0.06] overflow-hidden">
                                 <div
-                                  className={`h-full rounded-full ${isHighCpu
-                                      ? 'bg-amber-400'
-                                      : 'bg-cyan-400'
-                                    }`}
+                                  className={`h-full rounded-full ${isHighCpu ? 'bg-amber-400' : 'bg-cyan-400'}`}
                                   style={{ width: `${cpuBarWidth}%` }}
                                 />
                               </div>
                             </div>
 
-                            <div className="col-span-3 text-right">
-                              <div className="text-xs font-mono text-white">
-                                {formatProcMemory(proc.memory_mb)}
+                            {/* Desktop 12-col table row */}
+                            <div className="hidden sm:contents">
+                              <div className="col-span-5 flex items-center gap-2.5 min-w-0">
+                                <span
+                                  className={`w-2 h-2 rounded-full shrink-0 ${isHighCpu
+                                      ? 'bg-amber-400 shadow-[0_0_8px_#fbbf24]'
+                                      : isActiveCpu
+                                        ? 'bg-cyan-400 shadow-[0_0_8px_#22d3ee]'
+                                        : proc.status === 'Run'
+                                          ? 'bg-emerald-400'
+                                          : 'bg-zinc-600'
+                                    }`}
+                                />
+                                <div className="min-w-0">
+                                  <div className="text-xs font-semibold text-white truncate">
+                                    {proc.name}
+                                  </div>
+                                  <div className="text-[11px] font-mono text-zinc-500 truncate">
+                                    {proc.cmd}
+                                  </div>
+                                </div>
                               </div>
-                              <div className="text-[10px] font-mono text-zinc-500">
-                                {formatProcRuntime(proc.run_time_secs)}
+
+                              <div className="col-span-2 text-right">
+                                <div className="text-xs font-mono text-zinc-300">
+                                  {proc.pid}
+                                </div>
+                                <div className="text-[10px] font-mono text-zinc-500">
+                                  {proc.status}
+                                </div>
+                              </div>
+
+                              <div className="col-span-2 text-right">
+                                <div
+                                  className={`text-xs font-mono font-semibold ${isHighCpu
+                                      ? 'text-amber-300'
+                                      : isActiveCpu
+                                        ? 'text-cyan-300'
+                                        : 'text-zinc-300'
+                                    }`}
+                                >
+                                  {proc.cpu_percent.toFixed(1)}%
+                                </div>
+                                <div className="h-1 w-full rounded-full bg-white/[0.06] overflow-hidden mt-1">
+                                  <div
+                                    className={`h-full rounded-full ${isHighCpu
+                                        ? 'bg-amber-400'
+                                        : 'bg-cyan-400'
+                                      }`}
+                                    style={{ width: `${cpuBarWidth}%` }}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="col-span-3 text-right">
+                                <div className="text-xs font-mono text-white">
+                                  {formatProcMemory(proc.memory_mb)}
+                                </div>
+                                <div className="text-[10px] font-mono text-zinc-500">
+                                  {formatProcRuntime(proc.run_time_secs)}
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -3427,7 +3627,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* Real SSH Settings & Shortcuts Modal */}
       {sshSettingsOpen && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[80] bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
           <div className="apple-card w-full max-w-xl p-6 space-y-5 max-h-[88vh] overflow-y-auto">
             <div className="flex items-center justify-between gap-3">
               <div>

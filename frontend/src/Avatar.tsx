@@ -135,7 +135,9 @@ export function getProfileAvatarTheme(
   if (id === 'prof-mamka' || name === 'mamka') return AVATAR_THEMES['owl-brown'];
   if (id === 'prof-linda' || name === 'linda') return AVATAR_THEMES['soft-pink'];
   if (id === 'prof-tata' || name === 'táta' || name === 'tata') return AVATAR_THEMES['dark-blue'];
-  if (id === 'prof-sudo' || name === 'sudo') return AVATAR_THEMES.red;
+  if (id === 'prof-sudo' || id === 'prof-admin' || name === 'sudo' || name === 'admin') {
+    return AVATAR_THEMES.red;
+  }
   return AVATAR_THEMES.cyan;
 }
 

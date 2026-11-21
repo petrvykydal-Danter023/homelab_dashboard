@@ -56,11 +56,11 @@
     },
     {
       "id": "prof-sudo",
-      "name": "sudo",
+      "name": "Admin",
       "workspace_label": "Vykylab",
       "role": "Admin",
       "location": "Praha",
-      "avatar_initials": "S",
+      "avatar_initials": "A",
       "avatar_color": "red",
       "is_admin": true,
       "pin_code": "1234",

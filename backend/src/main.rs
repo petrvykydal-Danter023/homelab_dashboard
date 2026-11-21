@@ -456,7 +456,12 @@ impl AppState {
             }
         }
 
-        if !store.profiles.iter().any(|p| p.id == "prof-sudo" || p.name == "sudo") {
+        if !store.profiles.iter().any(|p| {
+            p.id == "prof-sudo"
+                || p.id == "prof-admin"
+                || p.name.eq_ignore_ascii_case("sudo")
+                || p.name.eq_ignore_ascii_case("admin")
+        }) {
             store.profiles.push(default_sudo_profile());
             changed = true;
         }
@@ -478,17 +483,26 @@ impl AppState {
             }
         }
 
-        // Ensure only the sudo profile has admin dashboard access.
+        // Ensure only the admin profile has admin dashboard access and migrate legacy "sudo" name to "Admin".
         for prof in &mut store.profiles {
-            let should_be_admin = prof.id == "prof-sudo" || prof.name == "sudo";
+            let should_be_admin = prof.id == "prof-sudo"
+                || prof.id == "prof-admin"
+                || prof.name.eq_ignore_ascii_case("sudo")
+                || prof.name.eq_ignore_ascii_case("admin");
             if prof.is_admin != should_be_admin {
                 prof.is_admin = should_be_admin;
+                changed = true;
+            }
+            if should_be_admin && prof.name.eq_ignore_ascii_case("sudo") {
+                prof.name = "Admin".to_string();
+                prof.avatar_initials = "A".to_string();
                 changed = true;
             }
         }
 
         if changed {
             let _ = save_store_to_disk(&store_path, &store);
+            let _ = save_profiles_yaml(&profiles_yaml_path, &store.profiles);
         }
 
         let yaml_mtime = fs::metadata(&profiles_yaml_path)
@@ -575,7 +589,7 @@ fn save_profiles_yaml(path: &StdPath, profiles: &[UserProfile]) -> std::io::Resu
         .collect();
     let header = "# Konfigurace uživatelských profilů Vykylab Dashboardu\n\
                   # Barvy avatara (avatar_color): owl-brown | soft-pink | dark-blue | cyan | red (příp. hex např. \"#c084fc\")\n\
-                  # Klasický dashboard mají všichni kromě účtu \"sudo\" (is_admin: true).\n\n";
+                  # Klasický dashboard mají všichni kromě účtu \"Admin\" (is_admin: true).\n\n";
     let body = serde_yaml::to_string(&ProfilesYamlConfig { profiles: entries })
         .map_err(std::io::Error::other)?;
     fs::write(path, format!("{}{}", header, body))
@@ -592,14 +606,22 @@ fn initials_from_name(name: &str) -> String {
 fn apply_yaml_profiles(store: &mut PersistedStore, cfg: &ProfilesYamlConfig) -> bool {
     let mut changed = false;
     for entry in &cfg.profiles {
-        let should_be_admin = entry.id == "prof-sudo" || entry.name == "sudo";
+        let should_be_admin = entry.id == "prof-sudo"
+            || entry.id == "prof-admin"
+            || entry.name.eq_ignore_ascii_case("sudo")
+            || entry.name.eq_ignore_ascii_case("admin");
+        let target_name = if should_be_admin && entry.name.eq_ignore_ascii_case("sudo") {
+            "Admin".to_string()
+        } else {
+            entry.name.clone()
+        };
         if let Some(existing) = store
             .profiles
             .iter_mut()
-            .find(|p| p.id == entry.id || p.name.eq_ignore_ascii_case(&entry.name))
+            .find(|p| p.id == entry.id || p.name.eq_ignore_ascii_case(&target_name))
         {
-            let next_initials = initials_from_name(&entry.name);
-            if existing.name != entry.name
+            let next_initials = initials_from_name(&target_name);
+            if existing.name != target_name
                 || existing.location != entry.location
                 || existing.avatar_color != entry.avatar_color
                 || existing.role != entry.role
@@ -608,7 +630,7 @@ fn apply_yaml_profiles(store: &mut PersistedStore, cfg: &ProfilesYamlConfig) -> 
                 || existing.is_admin != should_be_admin
                 || existing.pin_code != entry.pin_code
             {
-                existing.name = entry.name.clone();
+                existing.name = target_name;
                 existing.location = entry.location.clone();
                 existing.avatar_color = entry.avatar_color.clone();
                 existing.role = entry.role.clone();
@@ -717,12 +739,12 @@ fn default_extra_services() -> Vec<HomelabService> {
 fn default_sudo_profile() -> UserProfile {
     UserProfile {
         id: "prof-sudo".to_string(),
-        name: "sudo".to_string(),
+        name: "Admin".to_string(),
         workspace_label: "Vykylab".to_string(),
         role: "Admin".to_string(),
         location: "Praha".to_string(),
-        avatar_initials: "S".to_string(),
-        avatar_color: "cyan".to_string(),
+        avatar_initials: "A".to_string(),
+        avatar_color: "red".to_string(),
         is_admin: true,
         pin_code: Some("1234".to_string()),
         favorite_services: vec![
@@ -2920,7 +2942,7 @@ async fn admin_exec(
     if !is_admin {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "ok": false, "output": "Vyžadován admin profil sudo." })),
+            Json(serde_json::json!({ "ok": false, "output": "Vyžadován admin profil Admin." })),
         );
     }
 
@@ -3209,7 +3231,7 @@ async fn admin_pty_ws(
     if !is_admin {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "ok": false, "output": "Vyžadován admin profil sudo." })),
+            Json(serde_json::json!({ "ok": false, "output": "Vyžadován admin profil Admin." })),
         )
             .into_response();
     }
@@ -3593,7 +3615,7 @@ async fn admin_github_update(State(state): State<AppState>, headers: HeaderMap) 
     if !is_admin {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "ok": false, "message": "Vyžadován admin profil sudo." })),
+            Json(serde_json::json!({ "ok": false, "message": "Vyžadován admin profil Admin." })),
         );
     }
     let store_snapshot = store.clone();
