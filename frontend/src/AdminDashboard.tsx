@@ -1041,93 +1041,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* ================================================================ */}
         {activeTab === 'dashboard' && (
           <main className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-1 min-h-0 items-stretch">
-            {/* LEFT COLUMN (4 COLS): PROCESOR, RAM, STORAGE */}
-            <div className="lg:col-span-4 flex flex-col gap-4">
-              {/* Procesor (CPU) */}
-              <section
-                onMouseEnter={() => setHoveredMetric('cpu')}
-                onMouseLeave={() => setHoveredMetric(null)}
-                className="apple-card p-5 flex-1 flex flex-col justify-between gap-3"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-zinc-400">Procesor</span>
-                  <Cpu className="w-4 h-4 text-cyan-300" />
-                </div>
-                <div>
-                  <div className="text-3xl font-semibold font-mono tracking-tight text-white">
-                    {mon.cpu_percent.toFixed(1)}%
-                  </div>
-                  <div className="text-xs text-zinc-400 mt-1 truncate">
-                    {mon.cpu_brand} · {mon.cpu_cores} vláken
-                  </div>
-                </div>
-                <div className="h-1.5 rounded-full bg-white/[0.07] overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-white transition-all duration-500"
-                    style={{ width: `${Math.min(100, Math.max(4, mon.cpu_percent))}%` }}
-                  />
-                </div>
-              </section>
-
-              {/* RAM */}
-              <section
-                onMouseEnter={() => setHoveredMetric('ram')}
-                onMouseLeave={() => setHoveredMetric(null)}
-                className="apple-card p-5 flex-1 flex flex-col justify-between gap-3"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-zinc-400">RAM</span>
-                  <MemoryStick className="w-4 h-4 text-zinc-300" />
-                </div>
-                <div>
-                  <div className="text-3xl font-semibold font-mono tracking-tight text-white">
-                    {mon.ram_used_gb.toFixed(1)}
-                    <span className="text-base text-zinc-400 font-normal ml-1">
-                      / {mon.ram_total_gb.toFixed(0)} GB
-                    </span>
-                  </div>
-                  <div className="text-xs text-zinc-400 mt-1">
-                    Využito {mon.ram_percent.toFixed(0)}% paměti
-                  </div>
-                </div>
-                <div className="h-1.5 rounded-full bg-white/[0.07] overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-white transition-all duration-500"
-                    style={{ width: `${Math.min(100, Math.max(4, mon.ram_percent))}%` }}
-                  />
-                </div>
-              </section>
-
-              {/* Storage */}
-              <section
-                onMouseEnter={() => setHoveredMetric('storage')}
-                onMouseLeave={() => setHoveredMetric(null)}
-                className="apple-card p-5 flex-1 flex flex-col justify-between gap-3"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-zinc-400">Storage</span>
-                  <HardDrive className="w-4 h-4 text-zinc-300" />
-                </div>
-                <div>
-                  <div className="text-3xl font-semibold font-mono tracking-tight text-white">
-                    {mon.disk_free_gb.toFixed(0)}
-                    <span className="text-base text-zinc-400 font-normal ml-1">GB volných</span>
-                  </div>
-                  <div className="text-xs text-zinc-400 mt-1">
-                    {diskUsedGb.toFixed(0)} / {mon.disk_total_gb.toFixed(0)} GB obsazeno ({diskUsedPct.toFixed(0)}%)
-                  </div>
-                </div>
-                <div className="h-1.5 rounded-full bg-white/[0.07] overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-emerald-400 transition-all duration-500"
-                    style={{ width: `${Math.max(4, diskUsedPct)}%` }}
-                  />
-                </div>
-              </section>
-            </div>
-
-            {/* CENTER COLUMN (4 COLS): POLISHED AVATAR NODE STAGE (FIRST WIDGET ON MOBILE) */}
-            <section className="group/stage order-first lg:order-none lg:col-span-4 apple-card p-5 lg:p-6 flex flex-col justify-between relative overflow-hidden min-h-[300px] lg:min-h-[440px]">
+            {/* AVATAR NODE STAGE: FIRST IN DOM & ORDER-1 ON MOBILE, CENTER (ORDER-2) ON DESKTOP */}
+            <section className="group/stage order-1 lg:order-2 lg:col-span-4 apple-card p-5 lg:p-6 flex flex-col justify-between relative overflow-hidden min-h-[300px] lg:min-h-[440px]">
               {/* Top Node Header */}
               <div className="relative z-10 flex items-center justify-between gap-2">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.06] border border-white/[0.08] text-xs text-zinc-200">
@@ -1335,8 +1250,93 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </section>
 
-            {/* RIGHT COLUMN (4 COLS): NETWORK, UPTIME, DISK I/O */}
-            <div className="lg:col-span-4 flex flex-col gap-4">
+            {/* LEFT TELEMETRY COLUMN ON DESKTOP (ORDER-1 ON LG, ORDER-2 ON MOBILE): PROCESOR, RAM, STORAGE */}
+            <div className="order-2 lg:order-1 lg:col-span-4 flex flex-col gap-4">
+              {/* Procesor (CPU) */}
+              <section
+                onMouseEnter={() => setHoveredMetric('cpu')}
+                onMouseLeave={() => setHoveredMetric(null)}
+                className="apple-card p-5 flex-1 flex flex-col justify-between gap-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-zinc-400">Procesor</span>
+                  <Cpu className="w-4 h-4 text-cyan-300" />
+                </div>
+                <div>
+                  <div className="text-3xl font-semibold font-mono tracking-tight text-white">
+                    {mon.cpu_percent.toFixed(1)}%
+                  </div>
+                  <div className="text-xs text-zinc-400 mt-1 truncate">
+                    {mon.cpu_brand} · {mon.cpu_cores} vláken
+                  </div>
+                </div>
+                <div className="h-1.5 rounded-full bg-white/[0.07] overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-cyan-300 to-white transition-all duration-500"
+                    style={{ width: `${Math.min(100, Math.max(4, mon.cpu_percent))}%` }}
+                  />
+                </div>
+              </section>
+
+              {/* RAM */}
+              <section
+                onMouseEnter={() => setHoveredMetric('ram')}
+                onMouseLeave={() => setHoveredMetric(null)}
+                className="apple-card p-5 flex-1 flex flex-col justify-between gap-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-zinc-400">RAM</span>
+                  <MemoryStick className="w-4 h-4 text-zinc-300" />
+                </div>
+                <div>
+                  <div className="text-3xl font-semibold font-mono tracking-tight text-white">
+                    {mon.ram_used_gb.toFixed(1)}
+                    <span className="text-base text-zinc-400 font-normal ml-1">
+                      / {mon.ram_total_gb.toFixed(0)} GB
+                    </span>
+                  </div>
+                  <div className="text-xs text-zinc-400 mt-1">
+                    Využito {mon.ram_percent.toFixed(0)}% paměti
+                  </div>
+                </div>
+                <div className="h-1.5 rounded-full bg-white/[0.07] overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-white transition-all duration-500"
+                    style={{ width: `${Math.min(100, Math.max(4, mon.ram_percent))}%` }}
+                  />
+                </div>
+              </section>
+
+              {/* Storage */}
+              <section
+                onMouseEnter={() => setHoveredMetric('storage')}
+                onMouseLeave={() => setHoveredMetric(null)}
+                className="apple-card p-5 flex-1 flex flex-col justify-between gap-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-zinc-400">Storage</span>
+                  <HardDrive className="w-4 h-4 text-zinc-300" />
+                </div>
+                <div>
+                  <div className="text-3xl font-semibold font-mono tracking-tight text-white">
+                    {mon.disk_free_gb.toFixed(0)}
+                    <span className="text-base text-zinc-400 font-normal ml-1">GB volných</span>
+                  </div>
+                  <div className="text-xs text-zinc-400 mt-1">
+                    {diskUsedGb.toFixed(0)} / {mon.disk_total_gb.toFixed(0)} GB obsazeno ({diskUsedPct.toFixed(0)}%)
+                  </div>
+                </div>
+                <div className="h-1.5 rounded-full bg-white/[0.07] overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-emerald-400 transition-all duration-500"
+                    style={{ width: `${Math.max(4, diskUsedPct)}%` }}
+                  />
+                </div>
+              </section>
+            </div>
+
+            {/* RIGHT TELEMETRY COLUMN (ORDER-3 ON BOTH MOBILE & DESKTOP): NETWORK, UPTIME, DISK I/O */}
+            <div className="order-3 lg:order-3 lg:col-span-4 flex flex-col gap-4">
               {/* Network RX / TX */}
               <section
                 onMouseEnter={() => setHoveredMetric('network')}
@@ -1919,45 +1919,46 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     : 'apple-card p-4 sm:p-5 min-h-[420px]'
                 }`}
               >
-                <div className="shrink-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-3 border-b border-white/[0.07] min-w-0">
-                  <div className="flex items-center justify-between gap-2 min-w-0 w-full sm:w-auto">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className={`w-2 h-2 rounded-full shrink-0 ${
-                          ptyStatusText === 'connected'
-                            ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.75)]'
-                            : ptyStatusText === 'connecting'
-                              ? 'bg-amber-400 animate-pulse'
-                              : 'bg-rose-400'
-                        }`}
-                      />
-                      <span className="text-sm font-semibold text-white truncate">
-                        {activeConn?.name || 'Shell'}
-                      </span>
-                      <span className="text-[11px] font-mono text-zinc-400 truncate">
-                        ({promptLabel})
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wider shrink-0 ${
-                          ptyConnected
-                            ? 'bg-emerald-500/15 border-emerald-400/35 text-emerald-300'
-                            : ptyStatusText === 'connecting'
-                              ? 'bg-amber-500/15 border-amber-400/35 text-amber-300'
-                              : 'bg-rose-500/15 border-rose-400/35 text-rose-300'
-                        }`}
-                      >
-                        {ptyConnected
-                          ? 'LIVE PTY'
+                <div className="shrink-0 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-2.5 pb-3 border-b border-white/[0.07] min-w-0 w-full">
+                  <div className="flex items-center gap-2 min-w-0 w-full xl:w-auto">
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 ${
+                        ptyStatusText === 'connected'
+                          ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.75)]'
                           : ptyStatusText === 'connecting'
-                            ? 'Připojování...'
-                            : 'Odpojeno'}
-                      </span>
-                    </div>
+                            ? 'bg-amber-400 animate-pulse'
+                            : 'bg-rose-400'
+                      }`}
+                    />
+                    <span className="text-sm font-semibold text-white truncate">
+                      {activeConn?.name || 'Shell'}
+                    </span>
+                    <span className="text-[11px] font-mono text-zinc-400 truncate">
+                      ({promptLabel})
+                    </span>
+                    <span
+                      className={`ml-auto xl:ml-0 px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase tracking-wider shrink-0 ${
+                        ptyConnected
+                          ? 'bg-emerald-500/15 border-emerald-400/35 text-emerald-300'
+                          : ptyStatusText === 'connecting'
+                            ? 'bg-amber-500/15 border-amber-400/35 text-amber-300'
+                            : 'bg-rose-500/15 border-rose-400/35 text-rose-300'
+                      }`}
+                    >
+                      {ptyConnected
+                        ? 'LIVE PTY'
+                        : ptyStatusText === 'connecting'
+                          ? 'Připojování...'
+                          : 'Odpojeno'}
+                    </span>
+                  </div>
 
+                  {/* Mobile/Tablet: clean 3x2 action grid with prominent Fullscreen button · lg+: inline pills */}
+                  <div className="grid grid-cols-3 gap-1.5 w-full lg:w-auto lg:flex lg:flex-wrap lg:items-center lg:gap-2 min-w-0">
                     <button
                       type="button"
                       onClick={() => setSshFullscreen((v) => !v)}
-                      className="lg:hidden shrink-0 px-2.5 py-1.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/[0.12] text-xs font-semibold text-cyan-200 flex items-center gap-1.5 transition-colors"
+                      className="lg:hidden w-full min-w-0 px-2 py-2 rounded-xl bg-cyan-400/20 hover:bg-cyan-400/30 border border-cyan-300/45 text-[11px] font-semibold text-cyan-100 flex items-center justify-center gap-1 transition-colors"
                       title={
                         sshFullscreen
                           ? 'Ukončit režim celé obrazovky'
@@ -1966,37 +1967,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     >
                       {sshFullscreen ? (
                         <>
-                          <Minimize2 className="w-3.5 h-3.5" />
-                          <span>Zavřít</span>
+                          <Minimize2 className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">Zavřít</span>
                         </>
                       ) : (
                         <>
-                          <Maximize2 className="w-3.5 h-3.5" />
-                          <span>Fullscreen</span>
+                          <Maximize2 className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">Fullscreen</span>
                         </>
                       )}
                     </button>
-                  </div>
-
-                  {/* Mobile: neatly contained 3-col grid so actions never overflow card · sm+: inline pills */}
-                  <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2 w-full sm:w-auto min-w-0">
                     <button
                       type="button"
                       disabled={!ptyConnected}
                       onClick={() => runSshCommand('sudo su')}
-                      className="min-w-0 truncate px-2 sm:px-3 py-1.5 rounded-xl sm:rounded-full bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/35 text-[11px] sm:text-xs font-medium text-cyan-200 transition-colors disabled:opacity-40"
+                      className="w-full lg:w-auto min-w-0 px-2 py-2 lg:px-3 lg:py-1.5 rounded-xl lg:rounded-full bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/35 text-[11px] lg:text-xs font-medium text-cyan-200 flex items-center justify-center gap-1 transition-colors disabled:opacity-40"
                       title="Přepnout na root shell (sudo su)"
                     >
-                      sudo su
+                      <span className="truncate">sudo su</span>
                     </button>
                     <button
                       type="button"
                       disabled={!ptyConnected}
                       onClick={() => sendPtyInput('\x03')}
-                      className="min-w-0 truncate px-2 sm:px-3 py-1.5 rounded-xl sm:rounded-full bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/35 text-[11px] sm:text-xs font-mono font-medium text-rose-200 transition-colors disabled:opacity-40"
+                      className="w-full lg:w-auto min-w-0 px-2 py-2 lg:px-3 lg:py-1.5 rounded-xl lg:rounded-full bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/35 text-[11px] lg:text-xs font-mono font-medium text-rose-200 flex items-center justify-center gap-1 transition-colors disabled:opacity-40"
                       title="Poslat SIGINT (Ctrl+C)"
                     >
-                      Ctrl+C
+                      <span className="truncate">Ctrl+C</span>
                     </button>
                     <button
                       type="button"
@@ -2004,19 +2001,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         xtermRef.current?.clear();
                         sendPtyInput('clear\r');
                       }}
-                      className="min-w-0 truncate px-2 sm:px-3 py-1.5 rounded-xl sm:rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-[11px] sm:text-xs font-medium text-zinc-200 transition-colors"
+                      className="w-full lg:w-auto min-w-0 px-2 py-2 lg:px-3 lg:py-1.5 rounded-xl lg:rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-[11px] lg:text-xs font-medium text-zinc-200 flex items-center justify-center gap-1 transition-colors"
                     >
-                      Vyčistit
+                      <span className="truncate">Vyčistit</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setPtyReconnectSeq((s) => s + 1)}
-                      className="min-w-0 justify-center px-2 sm:px-3 py-1.5 rounded-xl sm:rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-[11px] sm:text-xs font-medium text-zinc-200 flex items-center gap-1 sm:gap-1.5 transition-colors"
+                      className="w-full lg:w-auto min-w-0 px-2 py-2 lg:px-3 lg:py-1.5 rounded-xl lg:rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-[11px] lg:text-xs font-medium text-zinc-200 flex items-center justify-center gap-1 transition-colors"
                       title="Restartovat PTY relaci"
                     >
                       <RotateCw className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">Restart</span>
-                      <span className="hidden sm:inline">shellu</span>
+                      <span className="lg:hidden truncate">Restart</span>
+                      <span className="hidden lg:inline">Restart shellu</span>
                     </button>
                     <button
                       type="button"
@@ -2024,7 +2021,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         setSshSettingsTab('connections');
                         setSshSettingsOpen(true);
                       }}
-                      className="col-span-2 sm:col-span-1 min-w-0 justify-center px-2 sm:px-3 py-1.5 rounded-xl sm:rounded-full bg-white text-zinc-950 font-semibold text-[11px] sm:text-xs flex items-center gap-1.5 hover:bg-zinc-200 transition-colors"
+                      className="w-full lg:w-auto min-w-0 px-2 py-2 lg:px-3 lg:py-1.5 rounded-xl lg:rounded-full bg-white text-zinc-950 font-semibold text-[11px] lg:text-xs flex items-center justify-center gap-1 hover:bg-zinc-200 transition-colors"
                     >
                       <Settings className="w-3.5 h-3.5 shrink-0" />
                       <span className="truncate">Nastavení</span>
