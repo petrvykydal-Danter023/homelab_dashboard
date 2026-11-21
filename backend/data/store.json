@@ -1,5 +1,5 @@
 {
-  "active_profile_id": "prof-mamka",
+  "active_profile_id": "prof-sudo",
   "profiles": [
     {
       "id": "prof-tata",
@@ -15,12 +15,25 @@
         "svc-portainer"
       ],
       "visible_services": [
-        "svc-adguard",
+        "svc-convertx",
+        "svc-photocraft",
+        "svc-quickimg",
+        "svc-vectorcraft",
+        "svc-emulatorjs",
         "svc-vaultwarden",
-        "svc-jellyfin",
-        "svc-homeassistant",
-        "svc-45e53205",
-        "svc-cad4c4ee"
+        "docker-a55155fdffea",
+        "svc-n8n",
+        "svc-searxng",
+        "svc-uptime-kuma",
+        "svc-memos",
+        "svc-wordcraft",
+        "svc-pdfcraft",
+        "svc-gridcraft",
+        "docker-03546bfb07cc",
+        "docker-ac0b24f9fe73",
+        "docker-ad2413876f8a",
+        "svc-portainer",
+        "svc-wol-peta"
       ],
       "shortcuts": [
         {
@@ -55,15 +68,7 @@
         "svc-portainer",
         "svc-adguard"
       ],
-      "visible_services": [
-        "svc-portainer",
-        "svc-adguard",
-        "svc-traefik",
-        "svc-vaultwarden",
-        "svc-jellyfin",
-        "svc-homeassistant",
-        "svc-grafana"
-      ],
+      "visible_services": null,
       "shortcuts": [
         {
           "id": "sc-sudo-docker",
@@ -99,10 +104,24 @@
         "svc-adguard"
       ],
       "visible_services": [
+        "svc-convertx",
+        "svc-photocraft",
+        "svc-quickimg",
+        "svc-vectorcraft",
+        "svc-emulatorjs",
         "svc-vaultwarden",
-        "svc-jellyfin",
-        "svc-homeassistant",
-        "svc-45e53205"
+        "docker-a55155fdffea",
+        "svc-n8n",
+        "svc-searxng",
+        "svc-uptime-kuma",
+        "svc-memos",
+        "svc-wordcraft",
+        "svc-pdfcraft",
+        "svc-gridcraft",
+        "docker-03546bfb07cc",
+        "docker-ac0b24f9fe73",
+        "docker-ad2413876f8a",
+        "svc-portainer"
       ],
       "shortcuts": [
         {
@@ -136,9 +155,30 @@
       "favorite_services": [
         "svc-adguard",
         "svc-portainer",
-        "svc-grafana"
+        "svc-grafana",
+        "docker-99c0122f4a02"
       ],
-      "visible_services": null,
+      "visible_services": [
+        "svc-convertx",
+        "svc-photocraft",
+        "svc-quickimg",
+        "svc-vectorcraft",
+        "svc-emulatorjs",
+        "svc-vaultwarden",
+        "docker-a55155fdffea",
+        "svc-n8n",
+        "svc-searxng",
+        "svc-uptime-kuma",
+        "svc-memos",
+        "svc-wordcraft",
+        "svc-pdfcraft",
+        "svc-gridcraft",
+        "docker-03546bfb07cc",
+        "docker-ac0b24f9fe73",
+        "docker-ad2413876f8a",
+        "svc-portainer",
+        "svc-wol-peta"
+      ],
       "shortcuts": []
     },
     {
@@ -156,8 +196,24 @@
         "svc-adguard"
       ],
       "visible_services": [
-        "svc-jellyfin",
-        "svc-45e53205"
+        "svc-convertx",
+        "svc-photocraft",
+        "svc-quickimg",
+        "svc-vectorcraft",
+        "svc-emulatorjs",
+        "svc-vaultwarden",
+        "docker-a55155fdffea",
+        "svc-n8n",
+        "svc-searxng",
+        "svc-uptime-kuma",
+        "svc-memos",
+        "svc-wordcraft",
+        "svc-pdfcraft",
+        "svc-gridcraft",
+        "docker-03546bfb07cc",
+        "docker-ac0b24f9fe73",
+        "docker-ad2413876f8a",
+        "svc-portainer"
       ],
       "shortcuts": [
         {
@@ -186,7 +242,7 @@
       "subtitle": "Docker Orchestrator",
       "status": "running",
       "uptime": "Up (healthy) · právě teď",
-      "url": "https://portainer.vykylab.local",
+      "url": "https://docker.vykylab.dev",
       "icon": "container",
       "image_url": null,
       "is_docker": true,
@@ -198,7 +254,7 @@
       "subtitle": "DNS & Filtering",
       "status": "running",
       "uptime": "Up (healthy) · právě teď",
-      "url": "https://dns.vykylab.local",
+      "url": "https://dns.vykylab.dev",
       "icon": "shield",
       "image_url": null,
       "is_docker": true,
@@ -210,7 +266,7 @@
       "subtitle": "Reverse Proxy & TLS",
       "status": "running",
       "uptime": "Up (healthy) · právě teď",
-      "url": "https://traefik.vykylab.local",
+      "url": "https://traefik.vykylab.dev",
       "icon": "layers",
       "image_url": null,
       "is_docker": true,
@@ -222,7 +278,7 @@
       "subtitle": "Správce hesel",
       "status": "running",
       "uptime": "Up (healthy) · právě teď",
-      "url": "https://vault.vykylab.local",
+      "url": "https://vault.vykylab.dev",
       "icon": "lock",
       "image_url": null,
       "is_docker": true,
@@ -234,7 +290,7 @@
       "subtitle": "Rodinné kino & média",
       "status": "running",
       "uptime": "Up (healthy) · právě teď",
-      "url": "https://media.vykylab.local",
+      "url": "https://media.vykylab.dev",
       "icon": "zap",
       "image_url": null,
       "is_docker": true,
@@ -246,7 +302,7 @@
       "subtitle": "Chytrá domácnost",
       "status": "running",
       "uptime": "Up (healthy) · právě teď",
-      "url": "https://ha.vykylab.local",
+      "url": "https://ha.vykylab.dev",
       "icon": "zap",
       "image_url": null,
       "is_docker": true,
@@ -258,35 +314,167 @@
       "subtitle": "Metriky & Telemetrie",
       "status": "running",
       "uptime": "Up (healthy) · právě teď",
-      "url": "https://grafana.vykylab.local",
+      "url": "https://grafana.vykylab.dev",
       "icon": "activity",
       "image_url": null,
       "is_docker": true,
       "container_name": null
     },
     {
-      "id": "svc-45e53205",
-      "name": "youtube",
-      "subtitle": "Youtube",
+      "id": "svc-pdfcraft",
+      "name": "PdfCraft",
+      "subtitle": "PDF čtečka & editor v Rustu",
       "status": "running",
-      "uptime": "Webový odkaz",
-      "url": "https://www.youtube.com/",
+      "uptime": "Up (healthy)",
+      "url": "https://pdfcraft.vykylab.dev",
       "icon": "layers",
-      "image_url": null,
-      "is_docker": false,
-      "container_name": null
+      "image_url": "/api/service-images/pdfcraft.jpg",
+      "is_docker": true,
+      "container_name": "pdfcraft"
     },
     {
-      "id": "svc-cad4c4ee",
-      "name": "Grafana - pc",
-      "subtitle": "Grafana",
-      "status": "stopped",
-      "uptime": "Stopped",
-      "url": "grafana.com",
-      "icon": "server",
+      "id": "svc-wordcraft",
+      "name": "WordCraft",
+      "subtitle": "Dokumenty (.docx, .odt, Markdown)",
+      "status": "running",
+      "uptime": "Up (healthy)",
+      "url": "https://wordcraft.vykylab.dev",
+      "icon": "globe",
+      "image_url": "/api/service-images/wordcraft.jpg",
+      "is_docker": true,
+      "container_name": "wordcraft"
+    },
+    {
+      "id": "svc-gridcraft",
+      "name": "GridCraft",
+      "subtitle": "Tabulky & grafy (.xlsx)",
+      "status": "running",
+      "uptime": "Up (healthy)",
+      "url": "https://gridcraft.vykylab.dev",
+      "icon": "activity",
+      "image_url": "/api/service-images/gridcraft.jpg",
+      "is_docker": true,
+      "container_name": "gridcraft"
+    },
+    {
+      "id": "svc-memos",
+      "name": "Memos",
+      "subtitle": "Rychlé poznámky & TODO",
+      "status": "running",
+      "uptime": "Up",
+      "url": "https://memos.vykylab.dev",
+      "icon": "layers",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": "memos"
+    },
+    {
+      "id": "svc-uptime-kuma",
+      "name": "Uptime Kuma",
+      "subtitle": "Monitoring & Status",
+      "status": "running",
+      "uptime": "Up",
+      "url": "https://uptime.vykylab.dev",
+      "icon": "activity",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": "uptime-kuma"
+    },
+    {
+      "id": "svc-searxng",
+      "name": "SearXNG",
+      "subtitle": "Soukromý vyhledávač",
+      "status": "running",
+      "uptime": "Up",
+      "url": "https://search.vykylab.dev",
+      "icon": "globe",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": "searxng"
+    },
+    {
+      "id": "svc-n8n",
+      "name": "n8n",
+      "subtitle": "Automatizace & Workflow",
+      "status": "running",
+      "uptime": "Up",
+      "url": "https://n8n.vykylab.dev",
+      "icon": "zap",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": "n8n"
+    },
+    {
+      "id": "svc-quickimg",
+      "name": "Quick Image Studio",
+      "subtitle": "Ořez, průhledné PNG & konverze",
+      "status": "running",
+      "uptime": "Up",
+      "url": "https://img.vykylab.dev",
+      "icon": "image",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": "quickimg"
+    },
+    {
+      "id": "svc-photocraft",
+      "name": "PhotoCraft",
+      "subtitle": "Webový fotoeditor (ArtCraft)",
+      "status": "running",
+      "uptime": "Up",
+      "url": "https://photo.vykylab.dev",
+      "icon": "image",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": "photocraft"
+    },
+    {
+      "id": "svc-vectorcraft",
+      "name": "VectorCraft",
+      "subtitle": "Vektorový & SVG editor (ArtCraft)",
+      "status": "running",
+      "uptime": "Up",
+      "url": "https://vector.vykylab.dev",
+      "icon": "image",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": "vectorcraft"
+    },
+    {
+      "id": "svc-convertx",
+      "name": "ConvertX",
+      "subtitle": "Převodník 1000+ typů souborů",
+      "status": "running",
+      "uptime": "Up",
+      "url": "https://convert.vykylab.dev",
+      "icon": "zap",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": "convertx"
+    },
+    {
+      "id": "svc-emulatorjs",
+      "name": "Retro Arcade",
+      "subtitle": "EmulatorJS herní konzole",
+      "status": "running",
+      "uptime": "Up",
+      "url": "https://games.vykylab.dev",
+      "icon": "film",
+      "image_url": null,
+      "is_docker": true,
+      "container_name": "emulatorjs"
+    },
+    {
+      "id": "svc-wol-peta",
+      "name": "Peťův PC (petruvkomp)",
+      "subtitle": "Stolní PC · Wake-on-LAN",
+      "status": "running",
+      "uptime": "Wake-on-LAN · 10.0.1.46",
+      "url": "wol://d8:bb:c1:3c:f3:ca/10.0.1.46",
+      "icon": "zap",
       "image_url": null,
       "is_docker": false,
-      "container_name": "Grafana"
+      "container_name": "wol"
     }
   ],
   "uploads": [],
@@ -323,6 +511,16 @@
         "id": "sh-ps",
         "label": "Top procesy",
         "command": "ps aux | head -n 12"
+      },
+      {
+        "id": "sh-8b8398e8",
+        "label": "fastfetch",
+        "command": "fastfetch"
+      },
+      {
+        "id": "sh-12af56c9",
+        "label": "Docker - RAM + CPU - info",
+        "command": "sudo docker stats --all --no-stream --format \"{{.Name}}\\t{{.CPUPerc}}\\t{{.MemUsage}}\" | LC_ALL=C sort -k3,3hr"
       }
     ]
   },
@@ -337,6 +535,6 @@
       "timestamp": "19.11. · 13:51"
     }
   ],
-  "last_checked": "14:51",
+  "last_checked": "00:45",
   "weather_summary": "7°C bez větru"
 }
